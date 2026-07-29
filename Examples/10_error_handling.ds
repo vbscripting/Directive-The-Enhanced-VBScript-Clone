@@ -1,0 +1,22 @@
+' 10_error_handling - On Error Resume Next and the Err object
+Option Explicit
+Sub SafeDivide(a, b)
+    On Error Resume Next
+    Dim r
+    r = a / b
+    If Err.Number <> 0 Then
+        Directive.Echo a & " / " & b & "  ->  ERROR " & Err.Number & ": " & Err.Description
+        Err.Clear
+    Else
+        Directive.Echo a & " / " & b & "  =  " & r
+    End If
+End Sub
+SafeDivide 10, 2
+SafeDivide 7, 0
+On Error Resume Next
+Err.Raise 5, "MyValidator", "Value must be positive"
+Directive.Echo "Caught custom #" & Err.Number & ": " & Err.Description
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

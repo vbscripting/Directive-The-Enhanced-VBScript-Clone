@@ -1,0 +1,90 @@
+' difftest3.vbs
+
+' Round 3 -- locale-sensitive formatting, and how VBScript types big numbers.
+'   cscript //nologo difftest3.vbs > vbs3.txt
+'   directive.exe difftest3.ds > ds3.txt
+On Error Resume Next
+Dim r
+
+Say "=== number OUTPUT (decimal separator) ==="
+Err.Clear : r = CStr(2.5)              : Chk "CStr(2.5)", r
+Err.Clear : r = CStr(1000.5)           : Chk "CStr(1000.5)", r
+Err.Clear : r = CStr(-0.25)            : Chk "CStr(-0.25)", r
+Err.Clear : r = 2.5 & ""               : Chk "2.5 & """"", r
+Err.Clear : r = CStr(0.1 + 0.2)        : Chk "CStr(0.1+0.2)", r
+Err.Clear : r = CStr(1234567.891)      : Chk "CStr(1234567.891)", r
+
+Say ""
+Say "=== number INPUT (which separators are accepted?) ==="
+Err.Clear : r = CDbl("1,5")            : Chk "CDbl(""1,5"")", r
+Err.Clear : r = CDbl("1.5")            : Chk "CDbl(""1.5"")", r
+Err.Clear : r = CDbl("1.000,5")        : Chk "CDbl(""1.000,5"")", r
+Err.Clear : r = CDbl("1,000.5")        : Chk "CDbl(""1,000.5"")", r
+Err.Clear : r = IsNumeric("1,5")       : Chk "IsNumeric(""1,5"")", r
+Err.Clear : r = IsNumeric("1.5")       : Chk "IsNumeric(""1.5"")", r
+Err.Clear : r = "1,5" + 0              : Chk """1,5""+0", r
+Err.Clear : r = "1.5" + 0              : Chk """1.5""+0", r
+
+Say ""
+Say "=== locale identity ==="
+Err.Clear : r = GetLocale()            : Chk "GetLocale()", r
+
+Say ""
+Say "=== dates (order and separators) ==="
+Err.Clear : r = CStr(CDate("2020-03-04"))     : Chk "CStr(CDate(iso))", r
+Err.Clear : r = Day(CDate("1/2/2020"))        : Chk "Day(CDate(""1/2/2020""))", r
+Err.Clear : r = Month(CDate("1/2/2020"))      : Chk "Month(CDate(""1/2/2020""))", r
+Err.Clear : r = FormatDateTime(CDate("2020-03-04"), 2) : Chk "FormatDateTime(,2)", r
+Err.Clear : r = FormatNumber(1234.5, 2)       : Chk "FormatNumber(1234.5,2)", r
+Err.Clear : r = FormatCurrency(1234.5)        : Chk "FormatCurrency(1234.5)", r
+
+Say ""
+Say ""
+Say "=== date type identity (Directive currently has NO Date subtype) ==="
+Err.Clear : r = TypeName(Now)                 : Chk "TypeName(Now)", r
+Err.Clear : r = VarType(Now)                  : Chk "VarType(Now)", r
+Err.Clear : r = IsDate(Now)                   : Chk "IsDate(Now)", r
+Err.Clear : r = TypeName(CDate("2020-03-04")) : Chk "TypeName(CDate(iso))", r
+Err.Clear : r = "" & CDate("2020-03-04")      : Chk "concat a date", r
+Err.Clear : r = CStr(DateSerial(2020, 3, 4))  : Chk "CStr(DateSerial)", r
+Err.Clear : r = TypeName(DateAdd("d", 1, CDate("2020-03-04"))) : Chk "TypeName(DateAdd)", r
+Err.Clear : r = "" & TimeSerial(13, 5, 0)     : Chk "concat a time", r
+
+Say "=== how VBScript types and prints big integers ==="
+Err.Clear : r = CStr(2147483648)              : Chk "CStr(2147483648)", r
+Err.Clear : r = 2147483648                    : Chk "2147483648", r
+Err.Clear : r = 1000000000000000000           : Chk "1e18 literal", r
+Err.Clear : r = CStr(1000000000000000000)     : Chk "CStr(1e18 literal)", r
+Err.Clear : r = 3000000000 * 3                : Chk "3e9*3", r
+Err.Clear : r = CStr(3000000000 * 3)          : Chk "CStr(3e9*3)", r
+Err.Clear : r = 2147483647 + 1                : Chk "2147483647+1", r
+Say "=== END ==="
+
+Function Pad(s, n)
+    If Len(s) >= n Then Pad = s Else Pad = s & Space(n - Len(s))
+End Function
+Function Fmt(v)
+    If IsObject(v) Then
+        If v Is Nothing Then Fmt = "Nothing" Else Fmt = "obj:" & TypeName(v)
+    ElseIf IsNull(v) Then
+        Fmt = "Null"
+    ElseIf IsEmpty(v) Then
+        Fmt = "Empty"
+    ElseIf IsArray(v) Then
+        Fmt = "array ubound=" & UBound(v)
+    Else
+        Fmt = TypeName(v) & " [" & CStr(v) & "]"
+    End If
+End Function
+Sub Chk(label, v)
+    If Err.Number <> 0 Then
+        Say Pad(label, 30) & "ERR " & Err.Number
+    Else
+        Say Pad(label, 30) & "= " & Fmt(v)
+    End If
+    Err.Clear
+End Sub
+
+Sub Say(s)
+    WScript.Echo s
+End Sub

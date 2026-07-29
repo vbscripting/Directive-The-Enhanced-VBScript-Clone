@@ -1,0 +1,21 @@
+' 08_regex - regular expressions (Set re = New RegExp)
+Option Explicit
+Dim re : Set re = New RegExp
+re.Global = True
+re.IgnoreCase = True
+
+re.Pattern = "\d+"
+Directive.Echo "has number? " & re.Test("Room 237")
+Directive.Echo "redacted:   " & re.Replace("Call 555-1234 or 555-5678", "###")
+
+re.Pattern = "(\w+)@(\w+)\.(\w+)"
+Dim matches, m
+Set matches = re.Execute("contact alice@example.com or bob@test.org")
+Directive.Echo "found " & matches.Count & " email(s):"
+For Each m In matches
+    Directive.Echo "  " & m.Value & "  user=" & m.SubMatches(0) & " domain=" & m.SubMatches(1)
+Next
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

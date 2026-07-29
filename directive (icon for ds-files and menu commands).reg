@@ -1,0 +1,99 @@
+Windows Registry Editor Version 5.00
+
+; ============================================================
+;  Directive Script (.ds) file association
+;
+;  Assumes this layout:
+;      C:\Directive\Directive.exe      console host
+;      C:\Directive\Directivew.exe     windowed host
+;      C:\Program Files\Notepad 4\Notepad4.exe       editor
+;      C:\Directive\ds.ico             file-type icon
+;
+;  AFTER IMPORTING: restart Explorer (Task Manager > Windows
+;  Explorer > Restart) or log off and on. Drop handlers and
+;  context-menu verbs are cached, so importing alone is not
+;  enough. If a .ds file still opens with the wrong program,
+;  check HKEY_CURRENT_USER\Software\Microsoft\Windows\
+;  CurrentVersion\Explorer\FileExts\.ds\UserChoice, which
+;  overrides everything here.
+;
+;  On Windows 11 these verbs appear under "Show more options"
+;  rather than in the short default right-click menu.
+; ============================================================
+
+; --- Extension -> ProgID ---
+[HKEY_CLASSES_ROOT\.ds]
+@="Directive"
+"Content Type"="text/plain"
+"PerceivedType"="text"
+
+; Right-click New -> Directive Script
+[HKEY_CLASSES_ROOT\.ds\ShellNew]
+"NullFile"=""
+
+; --- File type (ProgID) ---
+[HKEY_CLASSES_ROOT\Directive]
+@="Directive Script"
+
+[HKEY_CLASSES_ROOT\Directive\DefaultIcon]
+@="C:\\Directive\\ds.ico"
+
+; Double-clicking uses the console build.
+[HKEY_CLASSES_ROOT\Directive\shell]
+@="open"
+
+; ------------------------------------------------------------
+;  Verb 1: Open (console build) -- the default
+;  %1 is the script, %* passes on any files dropped onto it.
+; ------------------------------------------------------------
+[HKEY_CLASSES_ROOT\Directive\shell\open]
+@="&Open"
+"icon"="C:\\Directive\\ds.ico"
+
+[HKEY_CLASSES_ROOT\Directive\shell\open\command]
+@="\"C:\\Directive\\Directive.exe\" \"%1\" %*"
+
+; ------------------------------------------------------------
+;  Verb 2: Open in a window (GUI build)
+;  Directive.Echo becomes a popup and no console is created.
+; ------------------------------------------------------------
+[HKEY_CLASSES_ROOT\Directive\shell\openwindowed]
+@="Open in a &window"
+"icon"="C:\\Directive\\ds.ico"
+
+[HKEY_CLASSES_ROOT\Directive\shell\openwindowed\command]
+@="\"C:\\Directive\\Directivew.exe\" \"%1\" %*"
+
+; ------------------------------------------------------------
+;  Verb 3: Open in console and keep it open
+;  For a script with no Console.KeepOpen at the end, or one that
+;  fails before reaching it -- cmd /k holds the window so the
+;  error stays readable. Delete this block if you do not want it.
+;  The nested quoting is deliberate; cmd requires it.
+; ------------------------------------------------------------
+[HKEY_CLASSES_ROOT\Directive\shell\openkeep]
+@="Open in console, &keep open"
+"icon"="C:\\Directive\\ds.ico"
+
+[HKEY_CLASSES_ROOT\Directive\shell\openkeep\command]
+@="cmd.exe /k \"\"C:\\Directive\\Directive.exe\" \"%1\" %*\""
+
+; ------------------------------------------------------------
+;  Verb 4: Edit
+; ------------------------------------------------------------
+[HKEY_CLASSES_ROOT\Directive\shell\edit]
+@="&Edit"
+"icon"="C:\\Program Files\\Notepad 4\\Notepad4.exe,0"
+
+[HKEY_CLASSES_ROOT\Directive\shell\edit\command]
+@="\"C:\\Program Files\\Notepad 4\\Notepad4.exe\" \"%1\""
+
+; ------------------------------------------------------------
+;  Drag & drop files onto a .ds script
+;  {86C86720-42A0-1069-A2E8-08002B30309D} is the shell drop
+;  handler used by .bat and .exe files. It appends each dropped
+;  file's full path to the command line, where %* picks them up
+;  and Directive.Arguments then sees them.
+; ------------------------------------------------------------
+[HKEY_CLASSES_ROOT\Directive\shellex\DropHandler]
+@="{86C86720-42A0-1069-A2E8-08002B30309D}"

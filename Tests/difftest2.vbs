@@ -1,0 +1,89 @@
+' difftest2.vbs
+
+' Round 2 -- concentrating on type identity and coercion, where round 1 found
+' every deviation.
+'   cscript //nologo difftest2.vbs > vbs2.txt
+'   directive.exe difftest2.ds > ds2.txt
+
+On Error Resume Next
+Dim r
+
+Say "=== literal and result types ==="
+Err.Clear : r = 1                     : Chk "1", r
+Err.Clear : r = 32767                 : Chk "32767", r
+Err.Clear : r = 32768                 : Chk "32768", r
+Err.Clear : r = 2147483647            : Chk "2147483647", r
+Err.Clear : r = 2147483648            : Chk "2147483648", r
+Err.Clear : r = 2.5                   : Chk "2.5", r
+Err.Clear : r = 32767 + 1             : Chk "32767+1", r
+Err.Clear : r = 2000000000 + 2000000000 : Chk "2e9+2e9", r
+Err.Clear : r = 300 * 300             : Chk "300*300", r
+Err.Clear : r = True + 1              : Chk "True+1", r
+Err.Clear : r = 5 And 3               : Chk "5 And 3", r
+Err.Clear : r = Not 0                 : Chk "Not 0", r
+Err.Clear : r = 10 / 5                : Chk "10/5", r
+
+Say ""
+Say "=== conversion functions ==="
+Err.Clear : r = CByte(200)            : Chk "CByte(200)", r
+Err.Clear : r = CLng(5)               : Chk "CLng(5)", r
+Err.Clear : r = CDbl(5)               : Chk "CDbl(5)", r
+Err.Clear : r = CStr(5)               : Chk "CStr(5)", r
+Err.Clear : r = CBool("true")         : Chk "CBool(""true"")", r
+Err.Clear : r = CInt("")              : Chk "CInt("""")", r
+Err.Clear : r = CInt("  12  ")        : Chk "CInt(""  12  "")", r
+Err.Clear : r = CInt("1e2")           : Chk "CInt(""1e2"")", r
+Err.Clear : r = CInt("&H10")          : Chk "CInt(""&H10"")", r
+Err.Clear : r = CDbl("1,5")           : Chk "CDbl(""1,5"")", r
+
+Say ""
+Say "=== implicit string coercion in arithmetic ==="
+Err.Clear : r = "12" + 1              : Chk """12""+1", r
+Err.Clear : r = "12abc" + 1           : Chk """12abc""+1", r
+Err.Clear : r = "12" * 2              : Chk """12""*2", r
+Err.Clear : r = "3" & 4               : Chk """3""&4", r
+
+Say ""
+Say "=== misc identity ==="
+Err.Clear : r = Asc("A")              : Chk "Asc(""A"")", r
+Err.Clear : r = Len("abc")            : Chk "Len(""abc"")", r
+Err.Clear : r = Abs(-2.5)             : Chk "Abs(-2.5)", r
+Err.Clear : r = Sgn(-3)               : Chk "Sgn(-3)", r
+Err.Clear : r = Hex(255)              : Chk "Hex(255)", r
+Err.Clear : r = Hex(CLng(-1))         : Chk "Hex(CLng(-1))", r
+Err.Clear : r = Oct(CLng(-1))         : Chk "Oct(CLng(-1))", r
+Err.Clear : r = Mid("abc", 2, 0)      : Chk "Mid(""abc"",2,0)", r
+Err.Clear : r = InStr("", "a")        : Chk "InStr("""",""a"")", r
+Err.Clear : r = StrComp("a", "B", 1)  : Chk "StrComp(""a"",""B"",1)", r
+Err.Clear : r = Round(2.345, 2)       : Chk "Round(2.345,2)", r
+Err.Clear : r = UBound(Split("a b"))  : Chk "UBound(Split(""a b""))", r
+Say "=== END ==="
+
+Function Pad(s, n)
+    If Len(s) >= n Then Pad = s Else Pad = s & Space(n - Len(s))
+End Function
+Function Fmt(v)
+    If IsObject(v) Then
+        If v Is Nothing Then Fmt = "Nothing" Else Fmt = "obj:" & TypeName(v)
+    ElseIf IsNull(v) Then
+        Fmt = "Null"
+    ElseIf IsEmpty(v) Then
+        Fmt = "Empty"
+    ElseIf IsArray(v) Then
+        Fmt = "array ubound=" & UBound(v)
+    Else
+        Fmt = TypeName(v) & " [" & CStr(v) & "]"
+    End If
+End Function
+Sub Chk(label, v)
+    If Err.Number <> 0 Then
+        Say Pad(label, 24) & "ERR " & Err.Number
+    Else
+        Say Pad(label, 24) & "= " & Fmt(v)
+    End If
+    Err.Clear
+End Sub
+
+Sub Say(s)
+    WScript.Echo s
+End Sub

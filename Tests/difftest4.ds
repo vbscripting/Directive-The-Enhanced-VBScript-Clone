@@ -1,0 +1,93 @@
+' difftest4.ds
+
+' Round 4 -- the places I had to guess: Date arithmetic and identity, the new
+' LongLong rung's interaction with Hex/Oct and integer division, and locale
+' coercion in arithmetic.
+'   cscript //nologo difftest4.vbs > vbs4.txt
+'   directive.exe difftest4.ds > ds4.txt
+On Error Resume Next
+Dim r
+Dim d1 : d1 = CDate("2020-03-04")
+Dim d2 : d2 = CDate("2020-03-09")
+
+Say "=== date arithmetic and identity ==="
+Err.Clear : r = TypeName(d1 + 1)              : Chk "TypeName(date+1)", r
+Err.Clear : r = TypeName(d1 - 1)              : Chk "TypeName(date-1)", r
+Err.Clear : r = TypeName(d2 - d1)             : Chk "TypeName(date-date)", r
+Err.Clear : r = d2 - d1                       : Chk "date-date value", r
+Err.Clear : r = "" & (d1 + 1)                 : Chk "date+1 printed", r
+Err.Clear : r = TypeName(DateSerial(2020,3,4) + TimeSerial(13,5,0)) : Chk "TypeName(date+time)", r
+Err.Clear : r = "" & (DateSerial(2020,3,4) + TimeSerial(13,5,0))    : Chk "date+time printed", r
+Err.Clear : r = IsNumeric(d1)                 : Chk "IsNumeric(date)", r
+Err.Clear : r = TypeName(Date)                : Chk "TypeName(Date)", r
+Err.Clear : r = TypeName(Time)                : Chk "TypeName(Time)", r
+Err.Clear : r = TypeName(Timer)               : Chk "TypeName(Timer)", r
+Err.Clear : r = (d1 = CDate("2020-03-04"))    : Chk "date = date", r
+Err.Clear : r = (d1 < d2)                     : Chk "date < date", r
+Err.Clear : r = TypeName(CLng(d1))            : Chk "TypeName(CLng(date))", r
+Err.Clear : r = CLng(d1)                      : Chk "CLng(date)", r
+Err.Clear : r = TypeName(CDbl(d1))            : Chk "TypeName(CDbl(date))", r
+
+Say ""
+Say "=== date part subtypes ==="
+Err.Clear : r = TypeName(Weekday(d1))         : Chk "TypeName(Weekday)", r
+Err.Clear : r = TypeName(DateDiff("d",d1,d2)) : Chk "TypeName(DateDiff)", r
+Err.Clear : r = DateDiff("d",d1,d2)           : Chk "DateDiff value", r
+Err.Clear : r = TypeName(DatePart("m",d1))    : Chk "TypeName(DatePart)", r
+Err.Clear : r = MonthName(3)                  : Chk "MonthName(3)", r
+Err.Clear : r = WeekdayName(1)                : Chk "WeekdayName(1)", r
+Err.Clear : r = FormatDateTime(d1, 1)         : Chk "FormatDateTime(,1)", r
+Err.Clear : r = FormatDateTime(d1, 0)         : Chk "FormatDateTime(,0)", r
+Err.Clear : r = FormatDateTime(TimeSerial(13,5,0), 3) : Chk "FormatDateTime(time,3)", r
+Err.Clear : r = FormatDateTime(TimeSerial(13,5,0), 4) : Chk "FormatDateTime(time,4)", r
+
+Say ""
+Say "=== Hex/Oct and \ past the Long ceiling ==="
+Err.Clear : r = Hex(2147483648)               : Chk "Hex(2147483648)", r
+Err.Clear : r = Hex(4000000000)               : Chk "Hex(4000000000)", r
+Err.Clear : r = Oct(4000000000)               : Chk "Oct(4000000000)", r
+Err.Clear : r = 1000000000000000000 \ 1       : Chk "1e18 literal \ 1", r
+Err.Clear : r = CDbl("1e18") \ 1              : Chk "CDbl(1e18) \ 1", r
+Err.Clear : r = 4000000000 \ 3                : Chk "4e9 \ 3", r
+Err.Clear : r = 4000000000 Mod 3              : Chk "4e9 Mod 3", r
+Err.Clear : r = TypeName(4000000000 And 255)  : Chk "TypeName(4e9 And 255)", r
+Err.Clear : r = 4000000000 And 255            : Chk "4e9 And 255", r
+Err.Clear : r = CInt(2147483648)              : Chk "CInt(2147483648)", r
+Err.Clear : r = CLng(4000000000)              : Chk "CLng(4000000000)", r
+
+Say ""
+Say "=== locale coercion in arithmetic ==="
+Err.Clear : r = "1,5" * 2                     : Chk """1,5"" * 2", r
+Err.Clear : r = "1.5" * 2                     : Chk """1.5"" * 2", r
+Err.Clear : r = CStr(1.5) + 0                 : Chk "CStr(1.5)+0", r
+Err.Clear : r = CDbl(CStr(2.5))               : Chk "CDbl(CStr(2.5))", r
+Say "=== END ==="
+
+Function Pad(s, n)
+    If Len(s) >= n Then Pad = s Else Pad = s & Space(n - Len(s))
+End Function
+Function Fmt(v)
+    If IsObject(v) Then
+        If v Is Nothing Then Fmt = "Nothing" Else Fmt = "obj:" & TypeName(v)
+    ElseIf IsNull(v) Then
+        Fmt = "Null"
+    ElseIf IsEmpty(v) Then
+        Fmt = "Empty"
+    ElseIf IsArray(v) Then
+        Fmt = "array ubound=" & UBound(v)
+    Else
+        Fmt = TypeName(v) & " [" & CStr(v) & "]"
+    End If
+End Function
+Sub Chk(label, v)
+    If Err.Number <> 0 Then
+        Say Pad(label, 26) & "ERR " & Err.Number
+    Else
+        Say Pad(label, 26) & "= " & Fmt(v)
+    End If
+    Err.Clear
+End Sub
+
+Sub Say(s)
+    Directive.Echo s
+End Sub

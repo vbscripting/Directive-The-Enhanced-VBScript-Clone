@@ -1,0 +1,33 @@
+' 02_control_flow - If/Select/For/Do
+Option Explicit
+Dim i, total
+total = 0
+For i = 1 To 10
+    total = total + i
+Next
+Directive.Echo "Sum 1..10 = " & total
+
+Dim hour : hour = 14
+If hour < 12 Then
+    Directive.Echo "Good morning"
+ElseIf hour < 18 Then
+    Directive.Echo "Good afternoon"
+Else
+    Directive.Echo "Good evening"
+End If
+
+Dim day : day = 3
+Select Case day
+    Case 1, 7 : Directive.Echo "Weekend"
+    Case Else : Directive.Echo "Weekday"
+End Select
+
+Dim n : n = 1
+Do Until n > 100
+    n = n * 2
+Loop
+Directive.Echo "First power of 2 over 100: " & n
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

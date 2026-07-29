@@ -1,0 +1,14 @@
+' withdot_b.ds
+
+' The workarounds, kept separate so a parse error in the bare form cannot hide them.
+Dim d : Set d = New Dictionary
+d.Add "k", "v"
+Dim n
+With d
+    Directive.Echo "parenthesised:"
+    Directive.Echo (.Count)
+    n = .Count
+    Directive.Echo "assignment: " & n
+    Directive.Echo "concatenated: " & .Count
+End With
+Directive.Echo "=== END B ==="

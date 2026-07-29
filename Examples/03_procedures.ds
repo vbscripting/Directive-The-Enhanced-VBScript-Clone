@@ -1,0 +1,16 @@
+' 03_procedures - Sub/Function, ByRef, recursion
+Option Explicit
+Function Fib(n)
+    If n < 2 Then Fib = n Else Fib = Fib(n - 1) + Fib(n - 2)
+End Function
+Sub Double(ByRef v)
+    v = v * 2
+End Sub
+Directive.Echo "Fib(10) = " & Fib(10)
+Dim value : value = 21
+Double value
+Directive.Echo "After Double: " & value
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

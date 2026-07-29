@@ -1,0 +1,119 @@
+' difftest5.vbs
+
+' Round 5 -- string semantics on non-ASCII text, the Chr/Asc family, remaining
+' Null propagation, and the byte-oriented B functions Directive does not have yet.
+' All non-ASCII text is built with ChrW so both files stay pure ASCII and no
+' encoding difference can confuse the comparison.
+'   cscript //nologo difftest5.vbs > vbs5.txt
+'   directive.exe difftest5.ds > ds5.txt
+On Error Resume Next
+Dim r
+Dim eacute : eacute = ChrW(233)          ' e with acute
+Dim ouml   : ouml   = ChrW(246)          ' o with diaeresis
+Dim euro   : euro   = ChrW(8364)
+Dim s      : s      = "h" & eacute & "llo w" & ouml & "rld"
+Dim pair   : pair   = ChrW(55357) & ChrW(56842)   ' a surrogate pair
+
+Say "=== string functions count characters, not bytes ==="
+Err.Clear : r = Len(s)                 : Chk "Len(accented)", r
+Err.Clear : r = Left(s, 2)             : Chk "Len(Left(s,2))", Len(r)
+Err.Clear : r = Mid(s, 2, 1)           : Chk "Mid(s,2,1)=eacute", (r = eacute)
+Err.Clear : r = Right(s, 5)            : Chk "Len(Right(s,5))", Len(r)
+Err.Clear : r = InStr(s, "w")          : Chk "InStr(s,""w"")", r
+Err.Clear : r = InStrRev(s, "l")       : Chk "InStrRev(s,""l"")", r
+Err.Clear : r = StrReverse(s)          : Chk "Len(StrReverse(s))", Len(r)
+Err.Clear : r = (Left(StrReverse(s),1) = "d") : Chk "StrReverse starts ""d""", r
+Err.Clear : r = Len(euro)              : Chk "Len(euro)", r
+Err.Clear : r = Len(pair)              : Chk "Len(surrogate pair)", r
+Err.Clear : r = Len(Left(pair, 1))     : Chk "Len(Left(pair,1))", r
+Err.Clear : r = Len(UCase(s))          : Chk "Len(UCase(s))", r
+
+Say ""
+Say "=== case folding beyond ASCII ==="
+Err.Clear : r = (UCase(eacute) = ChrW(201)) : Chk "UCase(eacute)=Eacute", r
+Err.Clear : r = (LCase(ChrW(201)) = eacute) : Chk "LCase(Eacute)=eacute", r
+Err.Clear : r = AscW(UCase(ChrW(223)))      : Chk "AscW(UCase(sharp s))", r
+Err.Clear : r = Len(UCase(ChrW(223)))       : Chk "Len(UCase(sharp s))", r
+Err.Clear : r = AscW(UCase(ChrW(945)))      : Chk "AscW(UCase(alpha))", r
+Err.Clear : r = AscW(UCase(ChrW(1076)))     : Chk "AscW(UCase(de))", r
+Err.Clear : r = AscW(UCase(ChrW(255)))      : Chk "AscW(UCase(y-diaer))", r
+
+Say ""
+Say "=== Chr / ChrW / Asc / AscW edges ==="
+Err.Clear : r = AscW(euro)              : Chk "AscW(euro)", r
+Err.Clear : r = Asc(euro)               : Chk "Asc(euro)", r
+Err.Clear : r = AscW(Chr(233))          : Chk "AscW(Chr(233))", r
+Err.Clear : r = Asc(Chr(233))           : Chk "Asc(Chr(233))", r
+Err.Clear : r = AscW(Chr(147))          : Chk "AscW(Chr(147))", r
+Err.Clear : r = Len(Chr(233))           : Chk "Len(Chr(233))", r
+Err.Clear : r = Chr(-1)                 : Chk "Chr(-1)", TypeName(r)
+Err.Clear : r = Chr(256)                : Chk "Chr(256)", TypeName(r)
+Err.Clear : r = Chr(8364)               : Chk "Chr(8364)", TypeName(r)
+Err.Clear : r = ChrW(-1)                : Chk "ChrW(-1)", TypeName(r)
+Err.Clear : r = AscW(ChrW(55357))       : Chk "AscW(ChrW(55357))", r
+Err.Clear : r = AscW(pair)              : Chk "AscW(surrogate pair)", r
+
+Say ""
+Say "=== remaining Null propagation ==="
+Err.Clear : r = StrReverse(Null)        : Chk "StrReverse(Null)", r
+Err.Clear : r = Space(Null)             : Chk "Space(Null)", r
+Err.Clear : r = String(Null, "x")       : Chk "String(Null,""x"")", r
+Err.Clear : r = Replace(Null, "a", "b") : Chk "Replace(Null,..)", r
+Err.Clear : r = Split(Null, ",")        : Chk "Split(Null)", r
+Err.Clear : r = Chr(Null)               : Chk "Chr(Null)", r
+Err.Clear : r = Asc(Null)               : Chk "Asc(Null)", r
+Err.Clear : r = CStr(Null)              : Chk "CStr(Null)", r
+Err.Clear : r = CInt(Null)              : Chk "CInt(Null)", r
+Err.Clear : r = CDbl(Null)              : Chk "CDbl(Null)", r
+Err.Clear : r = CBool(Null)             : Chk "CBool(Null)", r
+Err.Clear : r = CDate(Null)             : Chk "CDate(Null)", r
+Err.Clear : r = Round(Null)             : Chk "Round(Null)", r
+Err.Clear : r = FormatNumber(Null)      : Chk "FormatNumber(Null)", r
+Err.Clear : r = Join(Array(1, Null, 3), "-") : Chk "Join(with Null)", r
+Err.Clear : r = Filter(Array("a"), Null): Chk "Filter(...,Null)", r
+Err.Clear : r = Sqr(Null)               : Chk "Sqr(Null)", r
+Err.Clear : r = Hex(Null)               : Chk "Hex(Null)", r
+
+Say ""
+Say "=== the byte-oriented family (Directive has none of these yet) ==="
+Err.Clear : r = LenB("abc")             : Chk "LenB(""abc"")", r
+Err.Clear : r = LenB(eacute)            : Chk "LenB(eacute)", r
+Err.Clear : r = LenB(pair)              : Chk "LenB(surrogate pair)", r
+Err.Clear : r = AscB("abc")             : Chk "AscB(""abc"")", r
+Err.Clear : r = AscB(eacute)            : Chk "AscB(eacute)", r
+Err.Clear : r = LenB(LeftB("abc", 4))   : Chk "LenB(LeftB(""abc"",4))", r
+Err.Clear : r = LeftB("abc", 2)         : Chk "LeftB(""abc"",2)", r
+Err.Clear : r = LenB(MidB("abc", 3, 2)) : Chk "LenB(MidB(""abc"",3,2))", r
+Err.Clear : r = InStrB(1, "abc", "b")   : Chk "InStrB(1,""abc"",""b"")", r
+Err.Clear : r = LenB(ChrB(65))          : Chk "LenB(ChrB(65))", r
+Err.Clear : r = LenB(RightB("abc", 2))  : Chk "LenB(RightB(""abc"",2))", r
+Say "=== END ==="
+
+Function Pad(t, n)
+    If Len(t) >= n Then Pad = t Else Pad = t & Space(n - Len(t))
+End Function
+Function Fmt(v)
+    If IsObject(v) Then
+        If v Is Nothing Then Fmt = "Nothing" Else Fmt = "obj:" & TypeName(v)
+    ElseIf IsNull(v) Then
+        Fmt = "Null"
+    ElseIf IsEmpty(v) Then
+        Fmt = "Empty"
+    ElseIf IsArray(v) Then
+        Fmt = "array ubound=" & UBound(v)
+    Else
+        Fmt = TypeName(v) & " [" & CStr(v) & "]"
+    End If
+End Function
+Sub Chk(label, v)
+    If Err.Number <> 0 Then
+        Say Pad(label, 26) & "ERR " & Err.Number
+    Else
+        Say Pad(label, 26) & "= " & Fmt(v)
+    End If
+    Err.Clear
+End Sub
+
+Sub Say(t)
+    WScript.Echo t
+End Sub

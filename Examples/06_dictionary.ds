@@ -1,0 +1,17 @@
+' 06_dictionary - the native dictionary (Set d = New Dictionary)
+Option Explicit
+Dim d : Set d = New Dictionary
+d.Add "apples", 12
+d.Add "oranges", 7
+d("bananas") = 20
+
+Dim key
+For Each key In d
+    Directive.Echo key & " => " & d(key)
+Next
+Directive.Echo "stock oranges? " & d.Exists("oranges")
+Directive.Echo "product count: " & d.Count
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

@@ -1,0 +1,131 @@
+' 18_extensions.ds — everything Directive has that VBScript does not.
+'
+' Directive's rule is "mirror VBScript": when behaviour is ambiguous it does what
+' classic VBScript does. This file is the deliberate exception list — the places
+' where Directive adds something, and why. Everything else (Option Explicit,
+' Class, Err, RegExp, Dictionary, the 100+ builtins, #date# literals, bracket
+' identifiers like [End]) behaves exactly as VBScript does and is not listed here.
+'
+' Runs on every platform: the Windows-only pieces are guarded and report instead
+' of failing.
+Option Explicit
+On Error Resume Next
+
+Directive.Echo "=============================================================="
+Directive.Echo " Directive extensions — not present in VBScript"
+Directive.Echo "=============================================================="
+
+' -- 1. Host object and object creation ---------------------------------------
+' The host object is always "Directive". Two separate creation verbs:
+'   New          -> native engine objects, cross-platform, no COM
+'   CreateObject -> real COM/ActiveX, Windows only (unchanged from VBScript)
+Directive.Echo ""
+Directive.Echo "1. Host object + New vs CreateObject"
+Directive.Echo "   host object:  Directive (" & TypeName(Directive) & ")"
+Directive.Echo "   script:       " & Directive.ScriptName
+Directive.Echo "   New          = native objects (cross-platform, COM-free)"
+Directive.Echo "   CreateObject = real COM/ActiveX (Windows only)"
+
+' -- 2. ds* constants ----------------------------------------------------------
+' Every vb* constant was replaced by a ds* one. Porting is a plain vb -> ds
+' substitution on constant names; there are no vb* aliases left.
+Directive.Echo ""
+Directive.Echo "2. ds* constants replace vb*"
+Directive.Echo "   dsCrLf, dsTab, dsYesNo, dsInformation, dsTextCompare, ..."
+Directive.Echo "   dsString = " & dsString & ", dsTextCompare = " & dsTextCompare
+
+' -- 3. New List ---------------------------------------------------------------
+' VBScript has arrays and Dictionary but no list. This one is ordered, 0-based,
+' and grows without ReDim Preserve.
+Directive.Echo ""
+Directive.Echo "3. New List — ordered collection VBScript lacks"
+Dim L : Set L = New List
+L.Add "pear" : L.Add "apple" : L.Add "fig"
+L.Sort
+Directive.Echo "   sorted:   " & Join(L.ToArray(), ", ")
+L.Reverse
+Directive.Echo "   reversed: " & Join(L.ToArray(), ", ") & "   (Count=" & L.Count & ")"
+
+' -- 4. New Console ------------------------------------------------------------
+' Colours, cursor control, screen clearing and single-key input. VBScript has no
+' console API at all, which is why batch scripts shell out to `color` and `cls`.
+' See 17_console.ds for the full tour.
+Directive.Echo ""
+Directive.Echo "4. New Console — colours, cursor, Cls, ReadKey, Pause"
+Dim c : Set c = New Console
+Directive.Echo "   attached=" & c.Attached & "  size=" & c.Width & "x" & c.Height
+c.Write "   coloured output: "
+c.Write "green", dsBrightGreen
+c.Write " / "
+c.WriteLine "red on white", dsRed, dsWhite
+
+' -- 5. Include ----------------------------------------------------------------
+' Parse-time file inclusion, resolved relative to the including file and applied
+' once per path (safe for diamond and circular includes). VBScript has no
+' equivalent outside .wsf job files. See 12_include.ds.
+Directive.Echo ""
+Directive.Echo "5. Include ""lib/strutil.ds"" — parse-time, no .wsf needed"
+
+' -- 6. New Shell --------------------------------------------------------------
+' A COM-free rewrite of the shell surface: Run/Exec/Environment work everywhere,
+' registry and special folders are Windows-only.
+Directive.Echo ""
+Directive.Echo "6. New Shell — COM-free process/env/registry access"
+Dim sh : Set sh = New Shell
+Dim tmp : tmp = sh.ExpandEnvironmentStrings("%PATH%")
+Directive.Echo "   PATH is " & Len(tmp) & " chars"
+
+' -- 7. New Sound --------------------------------------------------------------
+' WAV combining is pure file I/O and works everywhere; playback and Beep need
+' the Windows build.
+Directive.Echo ""
+Directive.Echo "7. New Sound — WAV combining (all platforms) + playback (Windows)"
+Dim snd : Set snd = New Sound
+Err.Clear
+snd.Beep 440, 80
+If Err.Number <> 0 Then
+    Directive.Echo "   Beep: " & Err.Description
+    Err.Clear
+Else
+    Directive.Echo "   Beep: played"
+End If
+
+' -- 8. Desktop automation ----------------------------------------------------
+' AutoIt-style input and screen access, deliberately split into single-purpose
+' objects rather than one catch-all. Windows-only.
+Directive.Echo ""
+Directive.Echo "8. New Mouse / Screen / Keyboard / Clipboard — Windows-only"
+Dim scr
+Err.Clear
+Set scr = New Screen
+If Err.Number <> 0 Then
+    Directive.Echo "   " & Err.Description
+    Err.Clear
+Else
+    Directive.Echo "   desktop is " & scr.Width & "x" & scr.Height & " px"
+End If
+' Keyboard.Send takes an AutoIt-style raw-mode second argument:
+'   Send "{ENTER}"     -> presses Enter
+'   Send "{ENTER}", 1  -> types the eight literal characters
+Directive.Echo "   Keyboard.Send(keys, 1) types braces literally instead of parsing them"
+
+' -- 9. Unicode text files ----------------------------------------------------
+' UTF-8 by default, with UTF-16LE/BE detected on read via BOM and forced on write
+' through CreateTextFile(path, True) / OpenTextFile(..., -1), including surrogate
+' pairs for emoji. See 15_unicode.ds.
+Directive.Echo ""
+Directive.Echo "9. FileSystem — UTF-8 default, UTF-16LE/BE with BOM detection"
+
+' -- 10. One source, two hosts ------------------------------------------------
+' directive.exe is the console host and directivew.exe the windowed one, both
+' built from a single self-contained C++17 source with no external dependencies.
+Directive.Echo ""
+Directive.Echo "10. Single static binary — directive.exe (console) / directivew.exe (GUI)"
+Directive.Echo "    No Windows Script Host, no COM registration, no .dll to install."
+
+Directive.Echo ""
+Directive.Echo "=============================================================="
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console,
+' so a double-click stays readable while piped/prompt/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

@@ -1,0 +1,35 @@
+' 13_arguments.ds
+' Reading command-line arguments via Directive.Arguments (0-based).
+'
+' Run:
+'   directive 13_arguments.ds one two "three with spaces"
+'
+' Drag-and-drop on Windows: associate the .ds extension with
+'   directive.exe "%1" %*   (or directivew.exe "%1" %* for a windowed run)
+' then dropping files onto a script passes their paths as arguments here.
+
+Dim args
+Set args = Directive.Arguments
+
+directive.echo "Argument count: " & args.Count
+
+If args.Count = 0 Then
+    directive.echo "(no arguments were supplied)"
+Else
+    ' Indexed access
+    Dim i
+    For i = 0 To args.Count - 1
+        directive.echo "  arg(" & i & ") = " & args(i)
+    Next
+
+    ' For Each iteration (handy for a list of dropped files)
+    directive.echo "Iterating with For Each:"
+    Dim a
+    For Each a In args
+        directive.echo "  -> " & a
+    Next
+End If
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

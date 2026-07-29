@@ -1,0 +1,56 @@
+' 19_bignumbers.ds — exact integers beyond VBScript's 32-bit ceiling.
+'
+' VBScript types a whole number as the narrowest that fits: Integer, then Long,
+' then it gives up and uses a Double — which silently stops holding whole numbers
+' past 2^53 (9007199254740992). Directive adds one more rung to that same ladder:
+'
+'     Integer (16-bit) -> Long (32-bit) -> LongLong (64-bit) -> Double
+'
+' It is automatic, exactly like VBScript's own widening. Nothing to opt into.
+Option Explicit
+
+Directive.Echo "--- the ladder, chosen automatically ---"
+Directive.Echo "1                    " & TypeName(1)
+Directive.Echo "32767                " & TypeName(32767)
+Directive.Echo "32768                " & TypeName(32768)
+Directive.Echo "2147483647           " & TypeName(2147483647)
+Directive.Echo "2147483648           " & TypeName(2147483648) & "   <- VBScript would say Double"
+Directive.Echo "9223372036854775807  " & TypeName(9223372036854775807)
+Directive.Echo "9223372036854775808  " & TypeName(9223372036854775808) & "     <- past 64 bits, so Double"
+Directive.Echo "2.5                  " & TypeName(2.5)
+
+Directive.Echo ""
+Directive.Echo "--- where VBScript loses digits and Directive does not ---"
+Directive.Echo "2^53 is the last integer a Double holds exactly:"
+Directive.Echo "  9007199254740992 + 1  = " & (9007199254740992 + 1)
+Directive.Echo "  the same as a Double  = " & (CDbl("9007199254740992") + 1)
+Directive.Echo "  3000000000 * 3000000000 = " & (3000000000 * 3000000000)
+
+Directive.Echo ""
+Directive.Echo "--- arithmetic widens, it never wraps ---"
+Directive.Echo "32767 + 1                = " & (32767 + 1) & "  (" & TypeName(32767 + 1) & ")"
+Directive.Echo "2147483647 + 1           = " & (2147483647 + 1) & "  (" & TypeName(2147483647 + 1) & ")"
+Directive.Echo "9223372036854775807 + 1  = " & (9223372036854775807 + 1) & "  (" & TypeName(9223372036854775807 + 1) & ")"
+Directive.Echo "  ...past 64 bits it becomes a Double, just as VBScript does past 32."
+
+Directive.Echo ""
+Directive.Echo "--- VBScript's own rules are untouched ---"
+Directive.Echo "7 \ 2       = " & (7 \ 2) & "  (" & TypeName(7 \ 2) & ", both operands 16-bit)"
+Directive.Echo "7.6 Mod 2   = " & (7.6 Mod 2) & "  (" & TypeName(7.6 Mod 2) & ", a Double operand promotes)"
+Directive.Echo "10 / 5      = " & (10 / 5) & "  (" & TypeName(10 / 5) & ", division is always Double)"
+Directive.Echo """12"" + 1    = " & ("12" + 1) & " (" & TypeName("12" + 1) & ", a string operand gives Double)"
+
+Directive.Echo ""
+Directive.Echo "--- explicit conversions still say exactly what they mean ---"
+Directive.Echo "CInt(5)     " & TypeName(CInt(5)) & "     CLng(5)  " & TypeName(CLng(5))
+Directive.Echo "CLngLng(5)  " & TypeName(CLngLng(5)) & "  CDbl(5)  " & TypeName(CDbl(5))
+Directive.Echo "VarType of a LongLong is " & VarType(CLngLng(5)) & " (dsLongLong), the same VT_I8 VBA reports."
+
+On Error Resume Next
+Dim bad : bad = CLngLng("99999999999999999999")
+Directive.Echo "CLngLng past 64 bits -> error " & Err.Number & " (" & Err.Description & ")"
+Err.Clear
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

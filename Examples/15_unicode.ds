@@ -1,0 +1,37 @@
+' 15_unicode.ds
+' Reading and writing Unicode text files with FileSystem.
+'   - Default text files are UTF-8 (no BOM).
+'   - Pass the "unicode"/"format" argument to read or write UTF-16LE (with BOM),
+'     which is what classic VBScript/Windows calls "Unicode".
+'   - On read, a BOM is auto-detected (UTF-8, UTF-16LE, or UTF-16BE) and the
+'     text is decoded either way, so you rarely need to say the format explicitly.
+' This whole example is cross-platform (pure file I/O).
+
+Dim fso : Set fso = New FileSystem
+Dim sample : sample = "café  ☕  日本語  🎉  Ω≈ç"     ' mix of accents, CJK, and an emoji
+
+' --- UTF-8 (the default) ---
+Dim u8 : Set u8 = fso.CreateTextFile("u8.txt", True)          ' 2nd arg = overwrite
+u8.WriteLine sample
+u8.Close
+directive.echo "UTF-8 read back : " & fso.OpenTextFile("u8.txt", 1).ReadLine
+
+' --- UTF-16LE with BOM (VBScript "Unicode") ---
+' CreateTextFile(name, overwrite, unicode) -> unicode = True writes UTF-16LE+BOM
+Dim u16 : Set u16 = fso.CreateTextFile("u16.txt", True, True)
+u16.WriteLine sample
+u16.Close
+' OpenTextFile auto-detects the BOM, so no format argument is needed to read it:
+directive.echo "UTF-16 read back: " & fso.OpenTextFile("u16.txt", 1).ReadLine
+
+' --- Forcing a format on read (for BOM-less files) ---
+' OpenTextFile(name, iomode, create, format): format -1 = Unicode, 0 = ASCII/UTF-8.
+' (Only needed when a UTF-16 file has no BOM; a BOM always wins.)
+Dim forced : Set forced = fso.OpenTextFile("u16.txt", 1, False, -1)
+directive.echo "Forced -1 read : " & forced.ReadLine
+
+directive.echo "Emoji and CJK survive the round-trip in both encodings."
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

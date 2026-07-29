@@ -1,0 +1,11 @@
+' withdot_a.ds
+
+' Does a BARE leading-dot argument to a paren-less call parse at all?
+' If this file prints nothing, it is a compile error in that dialect.
+Dim d : Set d = New Dictionary
+d.Add "k", "v"
+With d
+    Directive.Echo "bare leading dot:"
+    Directive.Echo .Count
+End With
+Directive.Echo "=== END A ==="

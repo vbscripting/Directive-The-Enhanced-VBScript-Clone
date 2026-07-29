@@ -1,0 +1,47 @@
+' 14_shell.ds
+' The native Shell object (New Shell) — a cross-platform replacement for
+' the classic Windows shell, so scripts keep working without depending on COM.
+
+Dim sh
+Set sh = New Shell
+
+' --- Environment variables (cross-platform) ---
+directive.echo "PATH is set: " & (Len(sh.Environment("PROCESS")("PATH")) > 0)
+directive.echo "Expanded:    " & sh.ExpandEnvironmentStrings("home=%HOME%%USERPROFILE%")
+
+' --- Current directory (cross-platform) ---
+directive.echo "Working dir: " & sh.CurrentDirectory
+
+' --- Exec: run a command and capture its output (cross-platform) ---
+' (uses a shell command; adjust for your OS)
+Dim e
+Set e = sh.Exec("echo hello from the shell")
+directive.echo "Exec says:   " & Trim(e.StdOut.ReadAll)
+directive.echo "Exit code:   " & e.ExitCode
+
+' --- Run: launch a program; wait = True blocks and returns the exit code ---
+' Dim rc : rc = sh.Run("notepad.exe", 1, True)   ' Windows
+' directive.echo "Run exit: " & rc
+
+' --- Windows-only (raise a clear error on other platforms) ---
+' sh.RegWrite "HKCU\Software\MyApp\Setting", "on", "REG_SZ"
+' directive.echo sh.RegRead("HKCU\Software\MyApp\Setting")
+' directive.echo sh.SpecialFolders("Desktop")
+'
+' ' Create a desktop shortcut (Windows shell link)
+' Dim lnk : Set lnk = sh.CreateShortcut(sh.SpecialFolders("Desktop") & "\MyApp.lnk")
+' lnk.TargetPath = "C:\Windows\System32\notepad.exe"
+' lnk.Arguments  = ""
+' lnk.WorkingDirectory = "C:\"
+' lnk.Description = "Launch Notepad"
+' lnk.Save
+'
+' ' Bring an existing window to the foreground by (partial) title
+' If sh.AppActivate("Notepad") Then directive.echo "focused Notepad"
+
+' --- Popup: a message box (returns the button code) ---
+' Dim answer : answer = sh.Popup("Continue?", 0, "Confirm", 4)   ' 4 = dsYesNo
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

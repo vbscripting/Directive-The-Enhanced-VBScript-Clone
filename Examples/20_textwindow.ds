@@ -1,0 +1,83 @@
+' 20_textwindow.ds — a resizable window with a multiline edit control.
+'
+' One control serving both directions:
+'   as an OUTPUT pane   fill Text, set ReadOnly, Show, and the user can scroll,
+'                       select and copy — no console codepage in the way, so
+'                       accents and symbols survive
+'   as a large INPUT box prefill Text, Show, and read Text back afterwards. Show
+'                       returns True for OK and False for Cancel, exactly as
+'                       InputBox returns "" when cancelled.
+'
+' The object builds its content on any platform; only Show needs Windows, and it
+' reports that plainly rather than pretending.
+Option Explicit
+
+Dim w : Set w = New TextWindow
+
+' Only put a modal window on screen when someone is there to close it: an
+' interactive console, or the windowed build. A piped run just describes itself.
+Dim con : Set con = New Console
+Dim interactive
+interactive = con.Attached Or InStr(LCase(Directive.FullName), "directivew") > 0
+
+' ---- as an output pane -------------------------------------------------------
+w.Title = "Directive — output pane"
+w.WriteLine "Anything you would otherwise squeeze into a MsgBox, or dump to a"
+w.WriteLine "temporary file just to read it, can go here instead."
+w.WriteLine ""
+w.WriteLine "Non-ASCII text is safe: café, wörld, straße, 100" & ChrW(8364) & ", " & ChrW(20445)
+w.WriteLine ""
+Dim i
+For i = 1 To 12
+    w.WriteLine "  row " & Right("00" & i, 2) & "   value " & (i * i)
+Next
+w.ReadOnly = True          ' hides Cancel and turns OK into Close
+w.WordWrap = True          ' set before Show; an edit control fixes this at creation
+w.Width  = 720
+w.Height = 420
+
+If interactive Then
+    On Error Resume Next
+    w.Show
+    If Err.Number <> 0 Then
+        Directive.Echo "Show: " & Err.Description
+        Err.Clear
+    Else
+        Directive.Echo "output pane closed"
+    End If
+    On Error Goto 0
+Else
+    Directive.Echo "output pane prepared, " & Len(w.Text) & " characters (not shown: run me interactively)"
+End If
+
+' ---- as a large input box ----------------------------------------------------
+Dim inp : Set inp = New TextWindow
+inp.Title = "Directive — paste or edit, then press OK"
+inp.ReadOnly = False
+inp.WordWrap = False       ' no wrapping, so long lines scroll horizontally
+inp.Text = "Edit these lines and press OK." & dsCrLf & _
+           "Press Esc or Cancel to discard." & dsCrLf & _
+           "Enter inserts a newline; it does not accept the dialog."
+inp.Width  = 640
+inp.Height = 320
+
+If interactive Then
+    On Error Resume Next
+    Dim accepted : accepted = inp.Show
+    If Err.Number <> 0 Then
+        Directive.Echo "Show: " & Err.Description
+        Err.Clear
+    ElseIf accepted Then
+        Directive.Echo "accepted, " & Len(inp.Text) & " characters:"
+        Directive.Echo inp.Text
+    Else
+        Directive.Echo "cancelled — Text is left exactly as it was"
+    End If
+    On Error Goto 0
+Else
+    Directive.Echo "input box prepared, " & Len(inp.Text) & " characters"
+End If
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

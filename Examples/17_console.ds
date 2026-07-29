@@ -1,0 +1,114 @@
+' 17_console.ds — the Console object: colours, cursor, screen and keys.
+'
+' None of this exists in VBScript, which is exactly why batch scripts shell out
+' to `color` and `cls`. Console works on every platform: the Win32 console API on
+' Windows (honoured by both conhost and Windows Terminal) and ANSI escapes on
+' Linux/macOS. When output is piped or redirected all the escapes are suppressed,
+' so `directive 17_console.ds > log.txt` gives clean text.
+Option Explicit
+
+Dim c : Set c = New Console
+
+' ---- is there a console to talk to at all? ---------------------------------
+' Under directivew.exe (the GUI build) a double-clicked script has no console, so
+' Console output goes nowhere and every Directive.Echo becomes a popup. Checking
+' Attached first is the pattern to copy: do console work only when it can be seen.
+' Attached is False whenever output is merely redirected too, so test the HOST
+' instead -- the same InStr on the interpreter path that VBScript scripts use.
+If InStr(LCase(Directive.FullName), "directivew") > 0 Then
+    MsgBox "17_console.ds is a console tour, so run it with directive.exe" & dsCrLf & _
+           "rather than directivew.exe." & dsCrLf & dsCrLf & _
+           "The GUI build has no console attached: colours, the cursor and " & _
+           "Console.Write have nowhere to go, and Directive.Echo becomes a popup.", _
+           dsInformation, "Directive"
+    Directive.Quit 0
+End If
+
+' ---- what are we attached to? ----------------------------------------------
+Directive.Echo "attached to a console: " & c.Attached
+Directive.Echo "console size:          " & c.Width & " x " & c.Height
+
+' ---- colours ----------------------------------------------------------------
+' Numbering matches cmd.exe's `color` command: 1=blue, 2=green, 4=red, +8=bright.
+' So dsYellow (6) is the dark/brown yellow and dsBrightYellow (14) is the vivid one.
+c.WriteLine ""
+c.WriteLine "-- persistent colours (set, write, reset) --"
+c.Foreground = dsBrightYellow
+c.Background = dsBlue
+c.WriteLine " everything here is bright yellow on blue "
+c.Reset
+c.WriteLine "...and back to the console's own default."
+
+c.WriteLine ""
+c.WriteLine "-- one-shot colours (a single word or line, state untouched) --"
+c.Write "status: "
+c.Write "OK", dsBrightGreen
+c.Write " / "
+c.Write "WARN", dsBrightYellow
+c.Write " / "
+c.WriteLine "FAIL", dsBrightWhite, dsRed
+Directive.Echo "current fg/bg is still " & c.Foreground & "/" & c.Background & "  (-1 = console default)"
+
+' A quick swatch of all sixteen.
+c.WriteLine ""
+c.WriteLine "-- all 16 colours --"
+Dim i
+For i = 0 To 15
+    c.Write "  " & Right("  " & i, 2) & " ", dsBrightWhite
+    c.Write "sample", i
+    If (i + 1) Mod 4 = 0 Then c.WriteLine "" Else c.Write "   "
+Next
+c.Reset
+
+' ---- cursor -----------------------------------------------------------------
+' Coordinates are 0-based, like Directive.Arguments and List.
+' CursorX/CursorY return -1 when the position cannot be determined (redirected
+' output, or a terminal that does not answer a cursor-position request).
+c.WriteLine ""
+c.WriteLine "-- cursor --"
+Directive.Echo "cursor is at " & c.CursorX & "," & c.CursorY
+
+' A progress line that overwrites itself instead of scrolling: ClearLine + Write.
+If c.Attached Then
+    c.CursorVisible = False
+    Dim pct
+    For pct = 0 To 100 Step 20
+        c.ClearLine
+        c.Write "  working: " & pct & "%"
+        Directive.Sleep 120
+    Next
+    c.ClearLine
+    c.WriteLine "  working: done", dsBrightGreen
+    c.CursorVisible = True
+End If
+
+' ---- window title -----------------------------------------------------------
+c.Title = "Directive — 17_console.ds"
+Directive.Echo "window title: " & c.Title
+
+' ---- keys -------------------------------------------------------------------
+' ReadKey returns one key without waiting for Enter, using the same names
+' Keyboard.Send accepts -- so a key can be read and replayed:
+'   "a"       a plain character (UTF-8, so emoji and accents arrive whole)
+'   "{UP}"    named keys: {ENTER} {ESC} {TAB} {BACKSPACE} {HOME} {PGUP} {F1} ...
+'   "^a"      Ctrl+A, matching Send's ^ prefix
+If c.Attached Then
+    c.WriteLine ""
+    c.Write "press any key (try an arrow or F-key): "
+    Dim k : k = c.ReadKey
+    c.WriteLine ""
+    c.WriteLine "  you pressed: " & k, dsBrightCyan
+End If
+
+' ---- pausing ----------------------------------------------------------------
+' Pause    always waits for a key while a console is attached (batch PAUSE).
+' KeepOpen waits only when this script OWNS the console -- i.e. it was double-
+'          clicked or dragged onto, so the window would vanish on exit. Running
+'          from an existing prompt, piping, and the GUI build are unaffected.
+' Both are no-ops without an interactive console, so a scripted run cannot hang.
+Directive.Echo ""
+Directive.Echo "Console.Pause waits for any key; Console.KeepOpen only when needed."
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console,
+' so a double-click stays readable while piped/prompt/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen

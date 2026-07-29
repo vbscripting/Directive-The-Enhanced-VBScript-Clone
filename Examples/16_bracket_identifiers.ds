@@ -1,0 +1,47 @@
+' 16_bracket_identifiers.ds
+' Bracket identifiers: [ ... ] lets any text be used as a name -- even a keyword,
+' a name with spaces, or one starting with a digit. This is VBScript-compatible
+' and, more usefully, lets you reach COM/object members whose names collide with
+' language keywords (e.g. a member literally called "End" or "Next").
+
+' --- names that would otherwise be illegal ---
+Dim [hello world]
+[hello world] = "spaces are fine"
+directive.echo [hello world]
+
+Dim [123 start]
+[123 start] = "may start with a digit"
+directive.echo [123 start]
+
+' --- a keyword used as an ordinary variable name ---
+Dim [End]
+[End] = "a variable literally named End"
+directive.echo [End]
+
+' bracketed names are case-insensitive, like every other identifier
+Dim [Order Total]
+[order total] = 19.99
+directive.echo "case-insensitive: " & [Order TOTAL]
+
+' --- the real payoff: object members whose names are keywords ---
+Class Range              ' pretend this is a COM object with awkward member names
+    Public [End]         ' a property called End
+    Private cursor
+    Public Function [Next]()   ' a method called Next
+        cursor = cursor + 1
+        [Next] = cursor
+    End Function
+End Class
+
+Dim r : Set r = New Range
+r.[End] = "cell Z99"
+directive.echo "member .[End]  = " & r.[End]
+directive.echo "member .[Next] = " & r.[Next]()
+directive.echo "member .[Next] = " & r.[Next]()
+
+' Without brackets, "r.End" / "r.Next" would trip over the keywords; the brackets
+' tell the parser "this is a name, not syntax."
+
+' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
+' double-click stays readable while prompt/piped/GUI runs are unaffected.
+Dim keepOpen : Set keepOpen = New Console : keepOpen.KeepOpen
