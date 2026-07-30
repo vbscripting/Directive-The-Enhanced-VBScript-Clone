@@ -69,6 +69,8 @@ Next
 tw.WriteLine ""
 tw.WriteLine "Close the window when you are done."
 
+' Closing does not destroy the object: the transcript is kept, so it can still be
+' read (or saved) afterwards, and Show would bring the window back.
 tw.WaitForClose
 Directive.Echo "window closed; the transcript was " & Len(tw.Text) & " characters"
 
