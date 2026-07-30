@@ -1,82 +1,76 @@
-' 20_textwindow.ds — a resizable window with a multiline edit control.
+' 20_textwindow.ds — a Unicode console replacement.
 '
-' One control serving both directions:
-'   as an OUTPUT pane   fill Text, set ReadOnly, Show, and the user can scroll,
-'                       select and copy — no console codepage in the way, so
-'                       accents and symbols survive
-'   as a large INPUT box prefill Text, Show, and read Text back afterwards. Show
-'                       returns True for OK and False for Cancel, exactly as
-'                       InputBox returns "" when cancelled.
+' A scrollable output pane on top, an editable multiline input pane below, and a
+' Submit button. The window runs on its own thread with its own message loop, so
+' it stays responsive while the script is busy and output appears as it is written.
 '
-' The object builds its content on any platform; only Show needs Windows, and it
-' reports that plainly rather than pretending.
+' It fills the gap between MsgBox (one line, awkward to copy from) and the console
+' (mangles anything outside its code page, no real editing). Windows only: the
+' Linux build reports that rather than pretending.
 Option Explicit
 
-Dim w : Set w = New TextWindow
-
-' Only put a modal window on screen when someone is there to close it: an
-' interactive console, or the windowed build. A piped run just describes itself.
+Dim tw : Set tw = New TextWindow
 Dim con : Set con = New Console
 Dim interactive
 interactive = con.Attached Or InStr(LCase(Directive.FullName), "directivew") > 0
 
-' ---- as an output pane -------------------------------------------------------
-w.Title = "Directive — output pane"
-w.WriteLine "Anything you would otherwise squeeze into a MsgBox, or dump to a"
-w.WriteLine "temporary file just to read it, can go here instead."
-w.WriteLine ""
-w.WriteLine "Non-ASCII text is safe: café, wörld, straße, 100" & ChrW(8364) & ", " & ChrW(20445)
-w.WriteLine ""
+On Error Resume Next
+tw.Title = "Directive — TextWindow"
+If Err.Number <> 0 Then
+    Directive.Echo "TextWindow: " & Err.Description
+    Err.Clear
+    Directive.Quit 0
+End If
+On Error Goto 0
+
+If Not interactive Then
+    Directive.Echo "TextWindow demo: run me from a console or with directivew.exe."
+    Directive.Quit 0
+End If
+
+' ---- output -----------------------------------------------------------------
+' The window appears on the first write.
+tw.WriteLine "Anything the console cannot show, this can:"
+tw.WriteLine "  Japanese  " & ChrW(12371) & ChrW(12435) & ChrW(12395) & ChrW(12385) & ChrW(12399)
+tw.WriteLine "  Symbols   " & ChrW(177) & " " & ChrW(215) & " " & ChrW(247) & " " & ChrW(8804) & " " & ChrW(8734) & " " & ChrW(8364) & " " & ChrW(9733)
+tw.WriteLine "  Accents   caf" & ChrW(233) & ", w" & ChrW(246) & "rld, stra" & ChrW(223) & "e"
+tw.WriteLine ""
+tw.WriteLine "A lone line feed is turned into a proper line break:" & dsLf & "  ...like this."
+tw.WriteLine ""
+
+' ---- input ------------------------------------------------------------------
+' The user submits with the Submit button or Ctrl+Enter. Plain Enter inserts a
+' newline, which is the point of a multiline input box. Set SubmitOnEnter = True
+' to swap that round when reading one line at a time.
+tw.SubmitOnEnter = True
+Dim who : who = tw.Prompt("What is your name? ")
+tw.WriteLine "Hello, " & who
+tw.WriteLine ""
+
+' ---- a prompt loop ----------------------------------------------------------
+tw.WriteLine "Type a few commands, or 'quit' to finish."
+Dim cmd
+Do
+    cmd = tw.Prompt("> ")
+    If tw.IsClosed Then Exit Do
+    If LCase(Trim(cmd)) = "quit" Then Exit Do
+    tw.WriteLine "  you said: " & cmd
+Loop
+
+' ---- a log window with no input pane ----------------------------------------
+tw.WriteLine ""
+tw.WriteLine "Setting ShowInput = False turns this into an output-only log."
+tw.ShowInput = False
 Dim i
-For i = 1 To 12
-    w.WriteLine "  row " & Right("00" & i, 2) & "   value " & (i * i)
+For i = 1 To 8
+    tw.WriteLine "  processing item " & i
+    Directive.Sleep 60
 Next
-w.ReadOnly = True          ' hides Cancel and turns OK into Close
-w.WordWrap = True          ' set before Show; an edit control fixes this at creation
-w.Width  = 720
-w.Height = 420
+tw.WriteLine ""
+tw.WriteLine "Close the window when you are done."
 
-If interactive Then
-    On Error Resume Next
-    w.Show
-    If Err.Number <> 0 Then
-        Directive.Echo "Show: " & Err.Description
-        Err.Clear
-    Else
-        Directive.Echo "output pane closed"
-    End If
-    On Error Goto 0
-Else
-    Directive.Echo "output pane prepared, " & Len(w.Text) & " characters (not shown: run me interactively)"
-End If
-
-' ---- as a large input box ----------------------------------------------------
-Dim inp : Set inp = New TextWindow
-inp.Title = "Directive — paste or edit, then press OK"
-inp.ReadOnly = False
-inp.WordWrap = False       ' no wrapping, so long lines scroll horizontally
-inp.Text = "Edit these lines and press OK." & dsCrLf & _
-           "Press Esc or Cancel to discard." & dsCrLf & _
-           "Enter inserts a newline; it does not accept the dialog."
-inp.Width  = 640
-inp.Height = 320
-
-If interactive Then
-    On Error Resume Next
-    Dim accepted : accepted = inp.Show
-    If Err.Number <> 0 Then
-        Directive.Echo "Show: " & Err.Description
-        Err.Clear
-    ElseIf accepted Then
-        Directive.Echo "accepted, " & Len(inp.Text) & " characters:"
-        Directive.Echo inp.Text
-    Else
-        Directive.Echo "cancelled — Text is left exactly as it was"
-    End If
-    On Error Goto 0
-Else
-    Directive.Echo "input box prepared, " & Len(inp.Text) & " characters"
-End If
+tw.WaitForClose
+Directive.Echo "window closed; the transcript was " & Len(tw.Text) & " characters"
 
 ' --- PAUSE (batch equivalent): only waits when this script owns the console, so a
 ' double-click stays readable while prompt/piped/GUI runs are unaffected.

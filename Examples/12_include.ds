@@ -9,7 +9,7 @@
 ' Used before the Include line below — works because Include is parse-time:
 directive.echo "3 x 'ab' = " & Repeat("ab", 3)
 
-Include "strutil.ds"
+Include "lib/strutil.ds"
 
 directive.echo "library version: " & LIB_VERSION
 directive.echo TitleCase("the quick brown FOX")
