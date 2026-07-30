@@ -626,46 +626,66 @@ Dim k : k = c.ReadKey            ' "{F5}", "a", "^c", ...
 c.KeepOpen                       ' the .ds equivalent of batch PAUSE
 ```
 
-### TextWindow — `Set w = New TextWindow`
+### TextWindow — `Set tw = New TextWindow`
 
-A resizable window holding one multiline edit control, with OK and Cancel. It works
-in **both builds**, unlike `Console`, and being a real window it is unaffected by the
-console codepage — so accents and symbols survive where console output would mangle
-them. Windows only.
+A Unicode console replacement: a scrollable output pane on top, an editable
+multiline input pane below, and a Submit button. It runs on **its own thread with
+its own message loop**, so it stays responsive while the script is busy and output
+appears as it is written. Windows only.
 
-| Member | Type | Description |
-|---|---|---|
-| `Text` | String, r/w | The whole contents. Set it before `Show`; read it after to get what the user left. |
-| `AppendText s` / `Write s` | method | Append without a newline. |
-| `WriteLine s` | method | Append with a newline. |
-| `Clear` | method | Empty the contents. |
-| `Title` | String, r/w | Window caption. |
-| `ReadOnly` | Boolean, r/w | Hides Cancel and relabels OK to "Close". |
-| `WordWrap` | Boolean, r/w | Must be set **before** `Show`; an edit control fixes wrapping at creation. |
-| `Width` / `Height` | Integer, r/w | Initial client size in pixels. The window is resizable and the control follows. |
-| `Show` | Boolean, r | Show modally. **True** for OK, **False** for Cancel. |
+The window appears on the first write. Setting `Visible = False` beforehand
+suppresses that.
 
-Two uses fall out of the same object:
+| Output | |
+|---|---|
+| `Write(text, ...)` | Append without a newline. Takes several arguments. |
+| `WriteLine([text, ...])` | Append with a newline. No argument writes a blank line. |
+| `Text` | Get or set the whole output pane. Default member. |
+| `Clear` | Empty the output pane. |
+
+A lone line feed or carriage return becomes a proper line break, so
+`tw.WriteLine "a" & dsLf & "b"` shows two lines instead of a box character.
+
+| Input | |
+|---|---|
+| `ReadLine` | Block until the user submits; return one line at a time. |
+| `ReadAll` | Block until the user submits; return the whole submission. |
+| `Prompt(message)` | `Write(message)` then `ReadLine`. |
+| `InputText` | Get or set the input pane. |
+| `ClearInput` | Empty it and discard anything unread. |
+| `HasInput` | True if a submitted line is waiting. Never blocks. |
+
+The user submits with **Submit** or **Ctrl+Enter**; plain Enter inserts a newline.
+`SubmitOnEnter = True` swaps that round (Enter submits, Shift+Enter inserts).
+
+| Window | |
+|---|---|
+| `Show`, `Hide`, `Close`, `Activate` | |
+| `WaitForClose` | Block until the user closes it. |
+| `Visible`, `IsClosed` | |
+| `Title`, `Width`, `Height` | |
+| `FontName`, `FontSize` | Consolas 10 by default; any Unicode font works. |
+| `WordWrap` | Default True. Changing it rebuilds the pane, keeping the text. |
+| `ShowInput` | Default True. False gives an output-only log window. |
+| `EchoInput` | Default True — submitted text is copied into the output as a transcript. |
+| `SubmitOnEnter` | Default False. |
+
+`ReadLine`, `ReadAll` and `Prompt` raise a catchable error rather than hanging if
+the user closes the window; anything already submitted is returned first, and
+`IsClosed` lets you poll instead. Blocking calls pump messages, so nothing is
+starved. Closing the window does not destroy the object — `Show` brings it back.
 
 ```vbs
-' an output pane the user can select and copy from
-Dim w : Set w = New TextWindow
-w.Title = "Results"
-For Each line In report
-    w.WriteLine line
-Next
-w.ReadOnly = True
-w.Show
-
-' a large InputBox
-Dim inp : Set inp = New TextWindow
-inp.Text = existingText
-If inp.Show Then ProcessIt inp.Text      ' False means the user cancelled
+Dim tw : Set tw = New TextWindow
+tw.SubmitOnEnter = True
+Do
+    cmd = tw.Prompt("> ")
+    If tw.IsClosed Or LCase(cmd) = "quit" Then Exit Do
+    tw.WriteLine "you said: " & cmd
+Loop
 ```
 
-`Enter` inserts a newline rather than accepting, so multi-line editing behaves as
-expected; `Esc` cancels and `Tab` reaches the buttons. Cancel leaves `Text`
-untouched. See `examples/20_textwindow.ds`.
+See `examples/20_textwindow.ds`.
 
 ### Console colour constants
 

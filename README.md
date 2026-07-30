@@ -1,16 +1,15 @@
-# Directive-The-Enhanced-VBScript-Clone
+# Directive — a VBScript clone
 
-VBScript will be retired and eliminated from future versions of Windows,
-I wanna build a better alternative!
-
-It runs the familiar VBScript-style language,
-but as a single self-contained native binary,
-cross-platform, with no dependency on the Windows Script Host or COM.
+> **VBScript is being retired and removed from future versions of Windows.**
+> Directive exists because that leaves a lot of working automation with nowhere to
+> go — and I want a better alternative ready *before* the plug is pulled. It runs
+> the familiar VBScript-style language, but as a single self-contained native
+> binary, cross-platform, with no dependency on the Windows Script Host or COM.
 
 Directive is a small dynamic scripting language, one C++17 file (`directive.cpp`,
-no external dependencies) that compiles to a native executable.
-It stays source-compatible with the classic language where it can,
-while giving it a cleaner, more explicit object model of its own.
+no external dependencies) that compiles to a native executable. It stays
+source-compatible with the classic language where it can, while giving it a
+cleaner, more explicit object model of its own.
 
 It keeps the parts of the classic language that are pleasant to write — `Dim`,
 `If/Select`, `For/Do`, `Sub/Function`, `Class`, `On Error`/`Err` — and gives it a
@@ -458,22 +457,20 @@ API_REFERENCE.md.
 
 ## A window for text, when a message box will not do
 
-`New TextWindow` is a resizable window with a multiline edit control and OK/Cancel.
-It fills the gap between `MsgBox` (too small, cannot be copied from comfortably) and
-writing a temporary file just to read something:
+`New TextWindow` is a Unicode console replacement: a scrollable output pane, an
+editable multiline input pane, and a Submit button, on its own thread so it stays
+responsive while the script works.
 
 ```vbs
-Dim w : Set w = New TextWindow
-w.Title = "Results"
-w.WriteLine "anything, including caf" & ChrW(233) & " and 100" & ChrW(8364)
-w.ReadOnly = True
-w.Show                                  ' user can scroll, select, copy
+Dim tw : Set tw = New TextWindow
+tw.WriteLine "caf" & ChrW(233) & ", 100" & ChrW(8364) & ", anything the console mangles"
+Dim who : who = tw.Prompt("Your name? ")
+tw.WriteLine "Hello, " & who
+tw.WaitForClose
 ```
 
-Leave `ReadOnly` off and it becomes a large InputBox — prefill `Text`, and `Show`
-returns True for OK or False for Cancel, with the edited `Text` read back after.
-It works in both builds and, being a real window, is immune to the console
-codepage. Windows only. See `examples/20_textwindow.ds`.
+`ShowInput = False` gives an output-only log window; `SubmitOnEnter = True` reads a
+line at a time. Windows only. See `examples/20_textwindow.ds` and API_REFERENCE.md.
 
 ## Language coverage
 
