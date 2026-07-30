@@ -2534,20 +2534,42 @@ struct ClassInstance : IObject {
 };
 
 // ---- TextWindow --------------------------------------------------------------
-// A resizable window holding one multiline edit control, with OK and Cancel. It
-// serves both directions: prefill Text and read it back after Show to use it as a
-// large InputBox, or fill Text and set ReadOnly to give the user a pane of output
-// they can select and copy. Being a real window it also sidesteps the console
-// codepage, so non-ASCII text survives.
-struct TextWindowSpec {
-    std::string title = "Directive";
-    std::string text;
-    bool readOnly = false;
-    bool wordWrap = true;
-    int  width  = 700;
-    int  height = 460;
+// A window with a scrollable output pane on top and an editable input pane below,
+// modelled on the Scripting.TextWindow component. It runs on its own thread with
+// its own message loop, so it stays responsive while the script is busy and output
+// appears as it is written. Unicode throughout, which the console cannot manage.
+struct TwOpts {
+    std::string title = "Directive", fontName = "Consolas";
+    int  width = 720, height = 460, fontSize = 10;
+    bool wordWrap = true, showInput = true, echoInput = true;
+    bool submitOnEnter = false, visible = true;
 };
-static bool textWindowShow(TextWindowSpec& spec);   // true on OK, false on Cancel
+static void* twOpen(const TwOpts&);
+static void  twWrite(void*, const std::string&);
+static std::string twGetText(void*);
+static void  twSetText(void*, const std::string&);
+static void  twClear(void*);
+static std::string twGetInput(void*);
+static void  twSetInput(void*, const std::string&);
+static void  twClearInput(void*);
+static bool  twHasInput(void*);
+static bool  twReadLine(void*, std::string&);
+static bool  twReadAll(void*, std::string&);
+static void  twShow(void*, int);
+static void  twActivate(void*);
+static void  twClose(void*);
+static bool  twIsClosed(void*);
+static bool  twIsVisible(void*);
+static void  twWaitForClose(void*);
+static void  twSetTitle(void*, const std::string&);
+static void  twSetSize(void*, int, int);
+static void  twSetFont(void*, const std::string&, int);
+static void  twSetWrap(void*, bool);
+static void  twSetShowInput(void*, bool);
+static void  twSetEcho(void*, bool);
+static void  twSetSubmitEnter(void*, bool);
+static bool  twGetFlag(void*, int);
+static void  twDestroy(void*);
 
 // ---- Console control backend -------------------------------------------------
 // Colour numbers follow cmd.exe's `color` command and the Win32 console attribute
@@ -2585,41 +2607,82 @@ static std::string conFnName(int n) {
 }
 
 struct TextWindowObject : IObject {
-    TextWindowSpec spec;
+    void*   h = nullptr;          // the live window, created on first use
+    TwOpts  o;                    // settings, applied when it is created
+    ~TextWindowObject() override { if (h) twDestroy(h); }
     std::string typeName() const override { return "TextWindow"; }
+
+    // The window appears on the first write, as the reference component does.
+    void* need() {
+        if (!h) { h = twOpen(o); if (!h) raiseErr(429, "TextWindow could not be created"); }
+        return h;
+    }
+    static std::string joinArgs(std::vector<Value>& a) {
+        std::string t;
+        for (size_t i = 0; i < a.size(); ++i) t += a[i].toConcatStr();
+        return t;
+    }
 
     Value get(Interpreter&, const std::string& member, std::vector<Value>& args) override {
         std::string m = toLower(member);
-        if (m == "text")         return Value::str(spec.text);
-        if (m == "title")        return Value::str(spec.title);
-        if (m == "readonly")     return Value::boolean(spec.readOnly);
-        if (m == "wordwrap")     return Value::boolean(spec.wordWrap);
-        if (m == "width")        return Value::integer((int32_t)spec.width);
-        if (m == "height")       return Value::integer((int32_t)spec.height);
-        if (m == "clear")        { spec.text.clear(); return Value::empty(); }
-        if (m == "appendtext" || m == "write") {
-            if (!args.empty()) spec.text += args[0].toConcatStr();
-            return Value::empty();
+        if (m.empty() || m == "text") {                       // Text is the default member
+            if (!args.empty()) { twWrite(need(), joinArgs(args)); return Value::empty(); }
+            return Value::str(h ? twGetText(h) : std::string());
         }
-        if (m == "writeline") {
-            if (!args.empty()) spec.text += args[0].toConcatStr();
-            spec.text += "\r\n";                  // the edit control wants CRLF
-            return Value::empty();
+        if (m == "write")     { twWrite(need(), joinArgs(args)); return Value::empty(); }
+        if (m == "writeline") { twWrite(need(), joinArgs(args) + "\r\n"); return Value::empty(); }
+        if (m == "clear")     { if (h) twClear(h); return Value::empty(); }
+        if (m == "readline" || m == "readall") {
+            std::string out;
+            bool ok = (m == "readline") ? twReadLine(need(), out) : twReadAll(need(), out);
+            if (!ok) raiseErr(500, "The TextWindow was closed while waiting for input");
+            return Value::str(out);
         }
-        if (m == "show")         return Value::boolean(textWindowShow(spec));
+        if (m == "prompt") {
+            twWrite(need(), joinArgs(args));
+            std::string out;
+            if (!twReadLine(h, out)) raiseErr(500, "The TextWindow was closed while waiting for input");
+            return Value::str(out);
+        }
+        if (m == "inputtext")   return Value::str(h ? twGetInput(h) : std::string());
+        if (m == "clearinput")  { if (h) twClearInput(h); return Value::empty(); }
+        if (m == "hasinput")    return Value::boolean(h && twHasInput(h));
+        if (m == "show")        { twShow(need(), 5); o.visible = true;  return Value::empty(); }
+        if (m == "hide")        { if (h) twShow(h, 0); o.visible = false; return Value::empty(); }
+        if (m == "close")       { if (h) twClose(h); return Value::empty(); }
+        if (m == "activate")    { twActivate(need()); return Value::empty(); }
+        if (m == "waitforclose"){ if (h) twWaitForClose(h); return Value::empty(); }
+        if (m == "visible")     return Value::boolean(h ? twIsVisible(h) : o.visible);
+        if (m == "isclosed")    return Value::boolean(h && twIsClosed(h));
+        if (m == "title")       return Value::str(o.title);
+        if (m == "width")       return Value::integer((int32_t)o.width);
+        if (m == "height")      return Value::integer((int32_t)o.height);
+        if (m == "fontname")    return Value::str(o.fontName);
+        if (m == "fontsize")    return Value::integer((int32_t)o.fontSize);
+        if (m == "wordwrap")    return Value::boolean(h ? twGetFlag(h, 0) : o.wordWrap);
+        if (m == "showinput")   return Value::boolean(h ? twGetFlag(h, 1) : o.showInput);
+        if (m == "echoinput")   return Value::boolean(h ? twGetFlag(h, 2) : o.echoInput);
+        if (m == "submitonenter") return Value::boolean(h ? twGetFlag(h, 3) : o.submitOnEnter);
         raiseErr(438, "TextWindow has no member '" + member + "'");
         return Value::empty();
     }
+
     void set(Interpreter&, const std::string& member, std::vector<Value>& args,
              const Value& val, bool isSet) override {
         (void)args; (void)isSet;
         std::string m = toLower(member);
-        if (m == "text")     { spec.text = val.toConcatStr(); return; }
-        if (m == "title")    { spec.title = val.toConcatStr(); return; }
-        if (m == "readonly") { spec.readOnly = val.toBool(); return; }
-        if (m == "wordwrap") { spec.wordWrap = val.toBool(); return; }
-        if (m == "width")    { spec.width  = (int)val.toI64(); return; }
-        if (m == "height")   { spec.height = (int)val.toI64(); return; }
+        if (m == "text")      { twSetText(need(), val.toConcatStr()); return; }
+        if (m == "inputtext") { twSetInput(need(), val.toConcatStr()); return; }
+        if (m == "title")     { o.title = val.toConcatStr(); if (h) twSetTitle(h, o.title); return; }
+        if (m == "width")     { o.width  = (int)val.toI64(); if (h) twSetSize(h, o.width, o.height); return; }
+        if (m == "height")    { o.height = (int)val.toI64(); if (h) twSetSize(h, o.width, o.height); return; }
+        if (m == "fontname")  { o.fontName = val.toConcatStr(); if (h) twSetFont(h, o.fontName, o.fontSize); return; }
+        if (m == "fontsize")  { o.fontSize = (int)val.toI64(); if (h) twSetFont(h, o.fontName, o.fontSize); return; }
+        if (m == "wordwrap")  { o.wordWrap = val.toBool(); if (h) twSetWrap(h, o.wordWrap); return; }
+        if (m == "showinput") { o.showInput = val.toBool(); if (h) twSetShowInput(h, o.showInput); return; }
+        if (m == "echoinput") { o.echoInput = val.toBool(); if (h) twSetEcho(h, o.echoInput); return; }
+        if (m == "submitonenter") { o.submitOnEnter = val.toBool(); if (h) twSetSubmitEnter(h, o.submitOnEnter); return; }
+        if (m == "visible")   { o.visible = val.toBool(); if (h) twShow(h, o.visible ? 5 : 0); return; }
         raiseErr(438, "TextWindow has no writable property '" + member + "'");
     }
 };
@@ -4833,6 +4896,464 @@ static std::string shellSpecialFolder(const std::string& name) {
 
 static void dirSleepMs(long long ms) { if (ms > 0) ::Sleep((DWORD)ms); }
 
+
+// ---- TextWindow (Windows) ---------------------------------------------------
+// Output pane on top, editable input pane below, Submit bottom-right. The window
+// lives on its own thread with its own message loop, so it stays responsive while
+// the script is busy and output appears as it is written. The script thread never
+// touches a control directly: everything goes through SendMessage/PostMessage, and
+// the shared buffers are guarded by a critical section.
+#define TWM_FLUSH    (WM_APP + 1)
+#define TWM_CLEAR    (WM_APP + 2)
+#define TWM_SETOUT   (WM_APP + 3)
+#define TWM_SETIN    (WM_APP + 4)
+#define TWM_TITLE    (WM_APP + 5)
+#define TWM_FONT     (WM_APP + 6)
+#define TWM_LAYOUT   (WM_APP + 7)
+#define TWM_WRAP     (WM_APP + 8)
+#define TWM_SHOW     (WM_APP + 9)
+#define TWM_SIZE     (WM_APP + 10)
+#define TWM_ACTIVATE (WM_APP + 11)
+#define TWM_GETOUT   (WM_APP + 12)
+#define TWM_GETIN    (WM_APP + 13)
+#define TWM_QUIT     (WM_APP + 14)
+#define TW_IDC_OUT    1001
+#define TW_IDC_IN     1002
+#define TW_IDC_SUBMIT 1003
+#define TW_MARGIN     6
+#define TW_BTNSTRIP  34
+#define TW_BTNW      96
+#define TW_BTNH      24
+
+struct TwWin {
+    HWND hwnd = nullptr, hOut = nullptr, hIn = nullptr, hBtn = nullptr;
+    HFONT font = nullptr;
+    HANDLE thread = nullptr, hReady = nullptr, hInput = nullptr, hClosed = nullptr;
+    CRITICAL_SECTION cs;
+    std::wstring pend;          // written but not yet in the control
+    std::wstring inQueue;       // submitted, not yet read
+    std::wstring title = L"Directive", fontName = L"Consolas";
+    int  wndW = 720, wndH = 460, fontSize = 10;
+    bool wordWrap = true, showInput = true, echoInput = true;
+    bool submitOnEnter = false, wantVisible = true;
+};
+
+static WNDPROC g_twPrevEdit = nullptr;
+static LONG    g_twClsReg = 0;
+static const wchar_t* TW_CLASS = L"DirectiveTextWindow";
+
+// Lone LF or CR become CRLF, so a script using dsLf does not print boxes.
+static void twAppendNorm(std::wstring& dst, const std::wstring& s) {
+    dst.reserve(dst.size() + s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        wchar_t c = s[i];
+        if (c == L'\r') {
+            dst += L"\r\n";
+            if (i + 1 < s.size() && s[i + 1] == L'\n') ++i;
+        } else if (c == L'\n') {
+            dst += L"\r\n";
+        } else {
+            dst += c;
+        }
+    }
+}
+
+static void twLayout(TwWin* self) {
+    RECT rc; GetClientRect(self->hwnd, &rc);
+    int w = rc.right, h = rc.bottom;
+    int cw = w - TW_MARGIN * 2; if (cw < 0) cw = 0;
+
+    if (!self->showInput) {
+        int oh = h - TW_MARGIN * 2; if (oh < 0) oh = 0;
+        if (IsWindowVisible(self->hIn))  ShowWindow(self->hIn,  SW_HIDE);
+        if (IsWindowVisible(self->hBtn)) ShowWindow(self->hBtn, SW_HIDE);
+        SetWindowPos(self->hOut, nullptr, TW_MARGIN, TW_MARGIN, cw, oh,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        return;
+    }
+    // Split what is left after the margins and the button strip, so the panes can
+    // never overlap or spill past the bottom however fast the drag.
+    int avail = h - TW_MARGIN * 3 - TW_BTNSTRIP; if (avail < 0) avail = 0;
+    int inH = 110; if (inH > avail / 2) inH = avail / 2;
+    int outH = avail - inH;
+    int btnX = w - TW_MARGIN - TW_BTNW; if (btnX < TW_MARGIN) btnX = TW_MARGIN;
+    int btnY = TW_MARGIN * 2 + outH + inH + (TW_BTNSTRIP - TW_BTNH) / 2;
+
+    HDWP dwp = BeginDeferWindowPos(3);
+    if (dwp) {
+        dwp = DeferWindowPos(dwp, self->hOut, nullptr, TW_MARGIN, TW_MARGIN, cw, outH,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+        if (dwp) dwp = DeferWindowPos(dwp, self->hIn, nullptr, TW_MARGIN,
+                                      TW_MARGIN * 2 + outH, cw, inH,
+                                      SWP_NOZORDER | SWP_NOACTIVATE);
+        if (dwp) dwp = DeferWindowPos(dwp, self->hBtn, nullptr, btnX, btnY,
+                                      TW_BTNW, TW_BTNH,
+                                      SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+        if (dwp) EndDeferWindowPos(dwp);
+    }
+    if (!IsWindowVisible(self->hIn))  ShowWindow(self->hIn,  SW_SHOW);
+    if (!IsWindowVisible(self->hBtn)) ShowWindow(self->hBtn, SW_SHOW);
+}
+
+static void twApplyFont(TwWin* self) {
+    LOGFONTW lf; ZeroMemory(&lf, sizeof(lf));
+    HDC hdc = GetDC(nullptr);
+    lf.lfHeight = -MulDiv(self->fontSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+    ReleaseDC(nullptr, hdc);
+    lf.lfWeight = FW_NORMAL;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    lf.lfPitchAndFamily = FIXED_PITCH | FF_MODERN;
+    lstrcpynW(lf.lfFaceName, self->fontName.c_str(), 32);
+    HFONT old = self->font;
+    self->font = CreateFontIndirectW(&lf);
+    if (!self->font) { self->font = old; return; }
+    SendMessageW(self->hOut, WM_SETFONT, (WPARAM)self->font, TRUE);
+    SendMessageW(self->hIn,  WM_SETFONT, (WPARAM)self->font, TRUE);
+    if (old) DeleteObject(old);
+}
+
+static void twFlush(TwWin* self) {
+    std::wstring text;
+    EnterCriticalSection(&self->cs);
+    text.swap(self->pend);
+    LeaveCriticalSection(&self->cs);
+    if (text.empty()) return;
+    int end = GetWindowTextLengthW(self->hOut);
+    SendMessageW(self->hOut, EM_SETSEL, (WPARAM)end, (LPARAM)end);
+    SendMessageW(self->hOut, EM_REPLACESEL, FALSE, (LPARAM)text.c_str());
+    SendMessageW(self->hOut, EM_SCROLLCARET, 0, 0);
+}
+
+static void twSubmit(TwWin* self) {
+    int n = GetWindowTextLengthW(self->hIn);
+    std::wstring buf((size_t)n + 1, L'\0');
+    if (n > 0) GetWindowTextW(self->hIn, &buf[0], n + 1);
+    buf.resize((size_t)n);
+
+    EnterCriticalSection(&self->cs);
+    twAppendNorm(self->inQueue, buf);
+    self->inQueue += L"\r\n";                 // a submission always ends a line
+    if (self->echoInput) twAppendNorm(self->pend, buf + L"\r\n");
+    LeaveCriticalSection(&self->cs);
+
+    if (self->echoInput) twFlush(self);
+    SetWindowTextW(self->hIn, L"");
+    SetEvent(self->hInput);
+}
+
+// Subclass the input pane so Enter / Ctrl+Enter can submit.
+static LRESULT CALLBACK twInputProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    TwWin* self = (TwWin*)GetWindowLongPtrW(GetParent(h), GWLP_USERDATA);
+    if (m == WM_KEYDOWN && w == VK_RETURN && self) {
+        bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        bool shift = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
+        if (ctrl || (self->submitOnEnter && !shift)) { twSubmit(self); return 0; }
+    }
+    if (m == WM_CHAR && w == L'\n') return 0;      // swallow the Ctrl+Enter beep
+    return CallWindowProcW(g_twPrevEdit, h, m, w, l);
+}
+
+static LRESULT CALLBACK twWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    TwWin* self = (TwWin*)GetWindowLongPtrW(h, GWLP_USERDATA);
+    switch (m) {
+    case WM_NCCREATE:
+        self = (TwWin*)((CREATESTRUCTW*)l)->lpCreateParams;
+        SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)self);
+        return DefWindowProcW(h, m, w, l);
+    case WM_SIZE:           if (self) twLayout(self); return 0;
+    case WM_GETMINMAXINFO: {
+        MINMAXINFO* mmi = (MINMAXINFO*)l;
+        mmi->ptMinTrackSize.x = 360; mmi->ptMinTrackSize.y = 260; return 0; }
+    case WM_SETFOCUS:       if (self && self->showInput) SetFocus(self->hIn); return 0;
+    case WM_COMMAND:
+        if (self && LOWORD(w) == TW_IDC_SUBMIT && HIWORD(w) == BN_CLICKED) {
+            twSubmit(self);
+            if (self->showInput) SetFocus(self->hIn);
+            return 0;
+        }
+        break;
+    case TWM_FLUSH:    if (self) twFlush(self); return 0;
+    case TWM_CLEAR:    if (self) SetWindowTextW(self->hOut, L""); return 0;
+    case TWM_SETOUT:   if (self) SetWindowTextW(self->hOut, (const wchar_t*)w); return 0;
+    case TWM_SETIN:    if (self) SetWindowTextW(self->hIn,  (const wchar_t*)w); return 0;
+    case TWM_TITLE:    SetWindowTextW(h, (const wchar_t*)w); return 0;
+    case TWM_FONT:     if (self) twApplyFont(self); return 0;
+    case TWM_LAYOUT:   if (self) twLayout(self); return 0;
+    case TWM_ACTIVATE: ShowWindow(h, SW_SHOW); SetForegroundWindow(h); BringWindowToTop(h); return 0;
+    case TWM_SHOW:
+        ShowWindow(h, (int)w);
+        if ((int)w != SW_HIDE) { SetForegroundWindow(h); if (self && self->showInput) SetFocus(self->hIn); }
+        return 0;
+    case TWM_SIZE: {
+        RECT rc = {0, 0, (LONG)w, (LONG)l};
+        AdjustWindowRectEx(&rc, (DWORD)GetWindowLongW(h, GWL_STYLE), FALSE,
+                           (DWORD)GetWindowLongW(h, GWL_EXSTYLE));
+        SetWindowPos(h, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+                     SWP_NOMOVE | SWP_NOZORDER);
+        return 0; }
+    case TWM_GETOUT: case TWM_GETIN: {
+        if (!self) return 0;
+        HWND c = (m == TWM_GETOUT) ? self->hOut : self->hIn;
+        std::wstring* out = (std::wstring*)l;
+        int n = GetWindowTextLengthW(c);
+        out->assign((size_t)n + 1, L'\0');
+        if (n > 0) GetWindowTextW(c, &(*out)[0], n + 1);
+        out->resize((size_t)n);
+        return 0; }
+    case TWM_WRAP: {                          // wrap is fixed at creation: rebuild
+        if (!self) return 0;
+        std::wstring keep;
+        int n = GetWindowTextLengthW(self->hOut);
+        keep.assign((size_t)n + 1, L'\0');
+        if (n > 0) GetWindowTextW(self->hOut, &keep[0], n + 1);
+        keep.resize((size_t)n);
+        DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | WS_CLIPSIBLINGS |
+                      ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | ES_NOHIDESEL;
+        if (!self->wordWrap) style |= ES_AUTOHSCROLL | WS_HSCROLL;
+        DestroyWindow(self->hOut);
+        self->hOut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", nullptr, style,
+                                     0, 0, 10, 10, h, (HMENU)(UINT_PTR)TW_IDC_OUT,
+                                     GetModuleHandleW(nullptr), nullptr);
+        SendMessageW(self->hOut, EM_SETLIMITTEXT, 0, 0);
+        if (self->font) SendMessageW(self->hOut, WM_SETFONT, (WPARAM)self->font, TRUE);
+        SetWindowTextW(self->hOut, keep.c_str());
+        twLayout(self);
+        return 0; }
+    case TWM_QUIT:  DestroyWindow(h); return 0;
+    case WM_CLOSE:  DestroyWindow(h); return 0;
+    case WM_DESTROY:
+        if (self) { SetEvent(self->hClosed); SetEvent(self->hInput); }
+        PostQuitMessage(0);
+        return 0;
+    default: break;
+    }
+    return DefWindowProcW(h, m, w, l);
+}
+
+static DWORD WINAPI twUiThread(LPVOID param) {
+    TwWin* self = (TwWin*)param;
+    if (InterlockedCompareExchange(&g_twClsReg, 1, 0) == 0) {
+        WNDCLASSEXW wc; ZeroMemory(&wc, sizeof(wc));
+        wc.cbSize = sizeof(wc);
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc = twWndProc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursorW(nullptr, (LPCWSTR)IDC_ARROW);
+        wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+        wc.lpszClassName = TW_CLASS;
+        wc.hIcon = LoadIconW(nullptr, (LPCWSTR)IDI_APPLICATION);
+        if (!RegisterClassExW(&wc)) InterlockedExchange(&g_twClsReg, 0);
+    }
+    self->hwnd = CreateWindowExW(0, TW_CLASS, self->title.c_str(),
+                                 WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                                 CW_USEDEFAULT, CW_USEDEFAULT, self->wndW, self->wndH,
+                                 nullptr, nullptr, GetModuleHandleW(nullptr), self);
+    if (!self->hwnd) { SetEvent(self->hReady); return 1; }
+
+    DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | WS_CLIPSIBLINGS |
+                  ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | ES_NOHIDESEL;
+    if (!self->wordWrap) style |= ES_AUTOHSCROLL | WS_HSCROLL;
+    HINSTANCE hi = GetModuleHandleW(nullptr);
+    self->hOut = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", nullptr, style,
+                                 0, 0, 10, 10, self->hwnd, (HMENU)(UINT_PTR)TW_IDC_OUT, hi, nullptr);
+    self->hIn  = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", nullptr,
+                                 WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP |
+                                 WS_CLIPSIBLINGS | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
+                                 0, 0, 10, 10, self->hwnd, (HMENU)(UINT_PTR)TW_IDC_IN, hi, nullptr);
+    self->hBtn = CreateWindowExW(0, L"BUTTON", L"Submit",
+                                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS | BS_PUSHBUTTON,
+                                 0, 0, TW_BTNW, TW_BTNH, self->hwnd,
+                                 (HMENU)(UINT_PTR)TW_IDC_SUBMIT, hi, nullptr);
+    SendMessageW(self->hOut, EM_SETLIMITTEXT, 0, 0);
+    SendMessageW(self->hIn,  EM_SETLIMITTEXT, 0, 0);
+    if (!g_twPrevEdit)
+        g_twPrevEdit = (WNDPROC)(LONG_PTR)GetWindowLongPtrW(self->hIn, GWLP_WNDPROC);
+    SetWindowLongPtrW(self->hIn, GWLP_WNDPROC, (LONG_PTR)twInputProc);
+
+    twApplyFont(self);
+    twLayout(self);
+    if (self->wantVisible) {
+        ShowWindow(self->hwnd, SW_SHOW);
+        if (self->showInput) SetFocus(self->hIn);
+    }
+    SetEvent(self->hReady);
+
+    MSG msg;
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    if (self->font) { DeleteObject(self->font); self->font = nullptr; }
+    SetEvent(self->hClosed);
+    SetEvent(self->hInput);
+    return 0;
+}
+
+// Wait on an event while still pumping this thread's messages, so the script host's
+// apartment is never starved during a blocking read.
+static bool twWaitPumped(TwWin* s, HANDLE ev) {
+    for (;;) {
+        HANDLE hs[2] = { ev, s->hClosed };
+        DWORD r = MsgWaitForMultipleObjects(2, hs, FALSE, INFINITE, QS_ALLINPUT);
+        if (r == WAIT_OBJECT_0)     return true;
+        if (r == WAIT_OBJECT_0 + 1) return false;
+        MSG m;
+        while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
+    }
+}
+
+// ---- the API the script object calls ----------------------------------------
+static void* twOpen(const TwOpts& o) {
+    TwWin* s = new TwWin();
+    s->title = utf8ToWide(o.title); s->fontName = utf8ToWide(o.fontName);
+    s->wndW = o.width; s->wndH = o.height; s->fontSize = o.fontSize;
+    s->wordWrap = o.wordWrap; s->showInput = o.showInput; s->echoInput = o.echoInput;
+    s->submitOnEnter = o.submitOnEnter; s->wantVisible = o.visible;
+    InitializeCriticalSection(&s->cs);
+    s->hReady  = CreateEventW(nullptr, TRUE,  FALSE, nullptr);
+    s->hInput  = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    s->hClosed = CreateEventW(nullptr, TRUE,  FALSE, nullptr);
+    s->thread  = CreateThread(nullptr, 0, twUiThread, s, 0, nullptr);
+    if (!s->thread) { DeleteCriticalSection(&s->cs); delete s; return nullptr; }
+    WaitForSingleObject(s->hReady, 10000);
+    if (!s->hwnd) return nullptr;
+    return s;
+}
+static void twWrite(void* h, const std::string& t) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    EnterCriticalSection(&s->cs);
+    twAppendNorm(s->pend, utf8ToWide(t));
+    LeaveCriticalSection(&s->cs);
+    SendMessageW(s->hwnd, TWM_FLUSH, 0, 0);
+}
+static std::string twGetText(void* h) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return std::string();
+    SendMessageW(s->hwnd, TWM_FLUSH, 0, 0);
+    std::wstring out; SendMessageW(s->hwnd, TWM_GETOUT, 0, (LPARAM)&out);
+    return wideToUtf8(out.c_str(), (int)out.size());
+}
+static void twSetText(void* h, const std::string& t) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    std::wstring w; twAppendNorm(w, utf8ToWide(t));
+    EnterCriticalSection(&s->cs); s->pend.clear(); LeaveCriticalSection(&s->cs);
+    SendMessageW(s->hwnd, TWM_SETOUT, (WPARAM)w.c_str(), 0);
+}
+static void twClear(void* h) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    EnterCriticalSection(&s->cs); s->pend.clear(); LeaveCriticalSection(&s->cs);
+    SendMessageW(s->hwnd, TWM_CLEAR, 0, 0);
+}
+static std::string twGetInput(void* h) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return std::string();
+    std::wstring out; SendMessageW(s->hwnd, TWM_GETIN, 0, (LPARAM)&out);
+    return wideToUtf8(out.c_str(), (int)out.size());
+}
+static void twSetInput(void* h, const std::string& t) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    std::wstring w = utf8ToWide(t);
+    SendMessageW(s->hwnd, TWM_SETIN, (WPARAM)w.c_str(), 0);
+}
+static void twClearInput(void* h) {
+    TwWin* s = (TwWin*)h; if (!s) return;
+    EnterCriticalSection(&s->cs); s->inQueue.clear(); LeaveCriticalSection(&s->cs);
+    if (s->hwnd) SendMessageW(s->hwnd, TWM_SETIN, (WPARAM)L"", 0);
+}
+static bool twHasInput(void* h) {
+    TwWin* s = (TwWin*)h; if (!s) return false;
+    EnterCriticalSection(&s->cs); bool any = !s->inQueue.empty(); LeaveCriticalSection(&s->cs);
+    return any;
+}
+// Returns false when the window closed with nothing left to hand back.
+static bool twReadLine(void* h, std::string& out) {
+    TwWin* s = (TwWin*)h; if (!s) return false;
+    for (;;) {
+        EnterCriticalSection(&s->cs);
+        size_t nl = s->inQueue.find(L"\r\n");
+        bool got = (nl != std::wstring::npos);
+        std::wstring line;
+        if (got) { line = s->inQueue.substr(0, nl); s->inQueue.erase(0, nl + 2); }
+        LeaveCriticalSection(&s->cs);
+        if (got) { out = wideToUtf8(line.c_str(), (int)line.size()); return true; }
+        if (!twWaitPumped(s, s->hInput)) return false;
+    }
+}
+static bool twReadAll(void* h, std::string& out) {
+    TwWin* s = (TwWin*)h; if (!s) return false;
+    for (;;) {
+        EnterCriticalSection(&s->cs);
+        bool got = !s->inQueue.empty();
+        std::wstring all;
+        if (got) { all.swap(s->inQueue); }
+        LeaveCriticalSection(&s->cs);
+        if (got) {
+            while (all.size() >= 2 && all.compare(all.size() - 2, 2, L"\r\n") == 0)
+                all.resize(all.size() - 2);
+            out = wideToUtf8(all.c_str(), (int)all.size());
+            return true;
+        }
+        if (!twWaitPumped(s, s->hInput)) return false;
+    }
+}
+static void twShow(void* h, int cmd) {
+    TwWin* s = (TwWin*)h; if (s && s->hwnd) SendMessageW(s->hwnd, TWM_SHOW, (WPARAM)cmd, 0);
+}
+static void twActivate(void* h) {
+    TwWin* s = (TwWin*)h; if (s && s->hwnd) SendMessageW(s->hwnd, TWM_ACTIVATE, 0, 0);
+}
+static void twClose(void* h) {
+    TwWin* s = (TwWin*)h; if (s && s->hwnd) PostMessageW(s->hwnd, TWM_QUIT, 0, 0);
+}
+static bool twIsClosed(void* h) {
+    TwWin* s = (TwWin*)h;
+    return !s || WaitForSingleObject(s->hClosed, 0) == WAIT_OBJECT_0;
+}
+static bool twIsVisible(void* h) {
+    TwWin* s = (TwWin*)h;
+    return s && s->hwnd && IsWindowVisible(s->hwnd) != 0;
+}
+static void twWaitForClose(void* h) {
+    TwWin* s = (TwWin*)h; if (!s) return;
+    twWaitPumped(s, s->hClosed);
+}
+static void twSetTitle(void* h, const std::string& t) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    std::wstring w = utf8ToWide(t); s->title = w;
+    SendMessageW(s->hwnd, TWM_TITLE, (WPARAM)w.c_str(), 0);
+}
+static void twSetSize(void* h, int w, int ht) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    s->wndW = w; s->wndH = ht;
+    SendMessageW(s->hwnd, TWM_SIZE, (WPARAM)w, (LPARAM)ht);
+}
+static void twSetFont(void* h, const std::string& name, int size) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    s->fontName = utf8ToWide(name); s->fontSize = size;
+    SendMessageW(s->hwnd, TWM_FONT, 0, 0);
+}
+static void twSetWrap(void* h, bool on) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd || s->wordWrap == on) return;
+    s->wordWrap = on; SendMessageW(s->hwnd, TWM_WRAP, 0, 0);
+}
+static void twSetShowInput(void* h, bool on) {
+    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    s->showInput = on; SendMessageW(s->hwnd, TWM_LAYOUT, 0, 0);
+}
+static void twSetEcho(void* h, bool on)   { TwWin* s = (TwWin*)h; if (s) s->echoInput = on; }
+static void twSetSubmitEnter(void* h, bool on) { TwWin* s = (TwWin*)h; if (s) s->submitOnEnter = on; }
+static bool twGetFlag(void* h, int which) {
+    TwWin* s = (TwWin*)h; if (!s) return false;
+    return which == 0 ? s->wordWrap : which == 1 ? s->showInput
+         : which == 2 ? s->echoInput : s->submitOnEnter;
+}
+static void twDestroy(void* h) {
+    TwWin* s = (TwWin*)h; if (!s) return;
+    if (s->hwnd) PostMessageW(s->hwnd, TWM_QUIT, 0, 0);
+    if (s->thread) { WaitForSingleObject(s->thread, 5000); CloseHandle(s->thread); }
+    if (s->hReady)  CloseHandle(s->hReady);
+    if (s->hInput)  CloseHandle(s->hInput);
+    if (s->hClosed) CloseHandle(s->hClosed);
+    DeleteCriticalSection(&s->cs);
+    delete s;
+}
+
 static std::string hostExePath() {
     wchar_t buf[MAX_PATH * 2];
     DWORD n = GetModuleFileNameW(nullptr, buf, (DWORD)(sizeof(buf) / sizeof(buf[0])));
@@ -5182,9 +5703,36 @@ static std::string osFormatDateLong(int y, int mo, int d) {
     return b;
 }
 
-static bool textWindowShow(TextWindowSpec&) {
+// TextWindow is a desktop window, so the POSIX build reports rather than pretends.
+[[noreturn]] static void twUnavailable() {
     raiseErr(429, "TextWindow requires the Windows build of Directive");
 }
+static void* twOpen(const TwOpts&)                 { twUnavailable(); }
+static void  twWrite(void*, const std::string&)    { twUnavailable(); }
+static std::string twGetText(void*)                { twUnavailable(); }
+static void  twSetText(void*, const std::string&)  { twUnavailable(); }
+static void  twClear(void*)                        { twUnavailable(); }
+static std::string twGetInput(void*)               { twUnavailable(); }
+static void  twSetInput(void*, const std::string&) { twUnavailable(); }
+static void  twClearInput(void*)                   { twUnavailable(); }
+static bool  twHasInput(void*)                     { twUnavailable(); }
+static bool  twReadLine(void*, std::string&)       { twUnavailable(); }
+static bool  twReadAll(void*, std::string&)        { twUnavailable(); }
+static void  twShow(void*, int)                    { twUnavailable(); }
+static void  twActivate(void*)                     { twUnavailable(); }
+static void  twClose(void*)                        { twUnavailable(); }
+static bool  twIsClosed(void*)                     { return true; }
+static bool  twIsVisible(void*)                    { return false; }
+static void  twWaitForClose(void*)                 { twUnavailable(); }
+static void  twSetTitle(void*, const std::string&) { twUnavailable(); }
+static void  twSetSize(void*, int, int)            { twUnavailable(); }
+static void  twSetFont(void*, const std::string&, int) { twUnavailable(); }
+static void  twSetWrap(void*, bool)                { twUnavailable(); }
+static void  twSetShowInput(void*, bool)           { twUnavailable(); }
+static void  twSetEcho(void*, bool)                { twUnavailable(); }
+static void  twSetSubmitEnter(void*, bool)         { twUnavailable(); }
+static bool  twGetFlag(void*, int)                 { twUnavailable(); }
+static void  twDestroy(void*)                      { }
 
 static std::string hostExePath() {
     char buf[4096];
@@ -5493,129 +6041,6 @@ namespace ui {
         return false;
     }
 
-    // ---- TextWindow ---------------------------------------------------------
-    static const WORD ID_TWEDIT = 1010;
-    struct TwCtx { TextWindowSpec* spec; HFONT font; };
-
-    static void twLayout(HWND h) {
-        RECT rc; GetClientRect(h, &rc);
-        const int pad = 9, bw = 88, bh = 27;
-        HWND e  = GetDlgItem(h, ID_TWEDIT);
-        HWND ok = GetDlgItem(h, IDOK);
-        HWND ca = GetDlgItem(h, IDCANCEL);
-        int editH = rc.bottom - pad * 3 - bh;
-        if (editH < 40) editH = 40;
-        int by = rc.bottom - pad - bh;
-        bool haveCancel = ca && IsWindowVisible(ca);
-        // Move every control in one pass. Doing it with separate MoveWindow calls
-        // lets a fast drag paint half-finished intermediate states, and the bit
-        // copying Windows does while moving a button leaves it visibly garbled --
-        // SWP_NOCOPYBITS forces a clean redraw instead.
-        HDWP dwp = BeginDeferWindowPos(3);
-        const UINT fl = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
-        if (dwp && e)  dwp = DeferWindowPos(dwp, e,  nullptr, pad, pad, rc.right - pad * 2, editH, fl);
-        if (haveCancel) {
-            if (dwp && ok) dwp = DeferWindowPos(dwp, ok, nullptr, rc.right - pad - bw * 2 - pad, by, bw, bh, fl);
-            if (dwp)       dwp = DeferWindowPos(dwp, ca, nullptr, rc.right - pad - bw, by, bw, bh, fl);
-        } else if (dwp && ok) {
-            dwp = DeferWindowPos(dwp, ok, nullptr, rc.right - pad - bw, by, bw, bh, fl);
-        }
-        if (dwp) EndDeferWindowPos(dwp);
-        // Erase the strip the buttons sit on, so nothing of their old position
-        // survives when the window shrinks.
-        RECT strip = { 0, rc.bottom - pad * 2 - bh, rc.right, rc.bottom };
-        if (strip.top < 0) strip.top = 0;
-        InvalidateRect(h, &strip, TRUE);
-    }
-
-    static INT_PTR CALLBACK twProc(HWND h, UINT m, WPARAM w, LPARAM l) {
-        if (m == WM_INITDIALOG) {
-            TwCtx* c = (TwCtx*)l;
-            SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)c);
-            HWND e = GetDlgItem(h, ID_TWEDIT);
-            SendMessageW(e, EM_SETLIMITTEXT, 0, 0);          // no practical limit
-            // A fixed-pitch face suits dumped text; fall back if it is absent.
-            c->font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
-                                  OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                                  FIXED_PITCH | FF_MODERN, L"Consolas");
-            if (c->font) SendMessageW(e, WM_SETFONT, (WPARAM)c->font, TRUE);
-            std::wstring wt = toW(c->spec->text);
-            SetWindowTextW(e, wt.c_str());
-            if (c->spec->readOnly) {
-                SendMessageW(e, EM_SETREADONLY, TRUE, 0);
-                HWND ca = GetDlgItem(h, IDCANCEL);
-                if (ca) { ShowWindow(ca, SW_HIDE); EnableWindow(ca, FALSE); }
-                SetDlgItemTextW(h, IDOK, L"Close");
-            }
-            int cw = c->spec->width  > 200 ? c->spec->width  : 200;
-            int ch = c->spec->height > 150 ? c->spec->height : 150;
-            RECT want = {0, 0, cw, ch};
-            AdjustWindowRectEx(&want, (DWORD)GetWindowLongW(h, GWL_STYLE), FALSE,
-                               (DWORD)GetWindowLongW(h, GWL_EXSTYLE));
-            int ww = want.right - want.left, wh = want.bottom - want.top;
-            int sx = (GetSystemMetrics(SM_CXSCREEN) - ww) / 2;
-            int sy = (GetSystemMetrics(SM_CYSCREEN) - wh) / 2;
-            MoveWindow(h, sx > 0 ? sx : 0, sy > 0 ? sy : 0, ww, wh, TRUE);
-            twLayout(h);
-            SetFocus(e);
-            SendMessageW(e, EM_SETSEL, 0, 0);
-            return FALSE;                                     // focus set above
-        }
-        if (m == WM_SIZE)          { twLayout(h); return TRUE; }
-        if (m == WM_GETMINMAXINFO) { ((MINMAXINFO*)l)->ptMinTrackSize.x = 320;
-                                     ((MINMAXINFO*)l)->ptMinTrackSize.y = 220; return TRUE; }
-        if (m == WM_DESTROY) {
-            TwCtx* c = (TwCtx*)GetWindowLongPtrW(h, GWLP_USERDATA);
-            if (c && c->font) { DeleteObject(c->font); c->font = nullptr; }
-            return FALSE;
-        }
-        if (m == WM_COMMAND) {
-            TwCtx* c = (TwCtx*)GetWindowLongPtrW(h, GWLP_USERDATA);
-            WORD id = LOWORD(w);
-            if (id == IDOK) {
-                if (c) {
-                    HWND e = GetDlgItem(h, ID_TWEDIT);
-                    int len = GetWindowTextLengthW(e);
-                    std::wstring buf((size_t)len + 1, L'\0');
-                    if (len > 0) GetWindowTextW(e, &buf[0], len + 1);
-                    buf.resize((size_t)len);
-                    c->spec->text = wideToUtf8(buf.c_str(), (int)buf.size());
-                }
-                EndDialog(h, IDOK); return TRUE;
-            }
-            if (id == IDCANCEL) { EndDialog(h, IDCANCEL); return TRUE; }
-        }
-        return FALSE;
-    }
-
-    bool textWindow(TextWindowSpec& spec) {
-        TwCtx c; c.spec = &spec; c.font = nullptr;
-        std::wstring wCaption = toW(spec.title.empty() ? std::string("Directive") : spec.title);
-        DWORD editStyle = ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL | WS_VSCROLL |
-                          WS_BORDER | WS_TABSTOP;
-        if (!spec.wordWrap) editStyle |= WS_HSCROLL | ES_AUTOHSCROLL;
-
-        std::vector<BYTE> t;
-        putD(t, DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU |
-                WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN);
-        putD(t, 0);
-        putW(t, 3);                                   // three controls
-        putW(t, 0); putW(t, 0);
-        putW(t, 300); putW(t, 200);                   // nominal; resized on init
-        putW(t, 0);
-        putW(t, 0);
-        putStr(t, wCaption.c_str());
-        putW(t, 8); putStr(t, L"MS Shell Dlg");
-
-        addItem(t, editStyle,                      7,  7, 286, 160, ID_TWEDIT, 0x0081, L"");
-        addItem(t, BS_DEFPUSHBUTTON | WS_TABSTOP, 180, 176, 54, 16, IDOK,     0x0080, L"OK");
-        addItem(t, BS_PUSHBUTTON | WS_TABSTOP,    239, 176, 54, 16, IDCANCEL, 0x0080, L"Cancel");
-
-        INT_PTR r = DialogBoxIndirectParamW(GetModuleHandleW(NULL), (LPCDLGTEMPLATEW)t.data(),
-                                            NULL, twProc, (LPARAM)&c);
-        return r == IDOK;
-    }
-
     // ---- Echo / error: host-specific ----
 #ifdef DIRECTIVE_GUI
     // GUI build (directivew.exe): console when attached, else a dialog.
@@ -5634,7 +6059,6 @@ namespace ui {
 #endif
 }
 
-static bool textWindowShow(TextWindowSpec& spec) { return ui::textWindow(spec); }
 #endif
 
 // ---------------------------------------------------------------- driver
