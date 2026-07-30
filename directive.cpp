@@ -4931,6 +4931,7 @@ struct TwWin {
     HANDLE thread = nullptr, hReady = nullptr, hInput = nullptr, hClosed = nullptr;
     CRITICAL_SECTION cs;
     std::wstring pend;          // written but not yet in the control
+    std::wstring kept;          // the transcript while no window exists
     std::wstring inQueue;       // submitted, not yet read
     std::wstring title = L"Directive", fontName = L"Consolas";
     int  wndW = 720, wndH = 460, fontSize = 10;
@@ -5123,7 +5124,20 @@ static LRESULT CALLBACK twWndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case TWM_QUIT:  DestroyWindow(h); return 0;
     case WM_CLOSE:  DestroyWindow(h); return 0;
     case WM_DESTROY:
-        if (self) { SetEvent(self->hClosed); SetEvent(self->hInput); }
+        if (self) {
+            // Keep the transcript: a script almost always reads Text after
+            // WaitForClose, and the control is about to disappear.
+            int n = GetWindowTextLengthW(self->hOut);
+            std::wstring t((size_t)n + 1, L'\0');
+            if (n > 0) GetWindowTextW(self->hOut, &t[0], n + 1);
+            t.resize((size_t)n);
+            EnterCriticalSection(&self->cs);
+            self->kept.swap(t);
+            self->hwnd = nullptr;   // before signalling, so a WaitForClose that
+            LeaveCriticalSection(&self->cs);   // returns at once reads the kept text
+            SetEvent(self->hClosed);
+            SetEvent(self->hInput);
+        }
         PostQuitMessage(0);
         return 0;
     default: break;
@@ -5172,6 +5186,13 @@ static DWORD WINAPI twUiThread(LPVOID param) {
     SetWindowLongPtrW(self->hIn, GWLP_WNDPROC, (LONG_PTR)twInputProc);
 
     twApplyFont(self);
+    {   // Restore the transcript when the window is being brought back by Show.
+        std::wstring seed;
+        EnterCriticalSection(&self->cs);
+        seed.swap(self->kept);
+        LeaveCriticalSection(&self->cs);
+        if (!seed.empty()) SetWindowTextW(self->hOut, seed.c_str());
+    }
     twLayout(self);
     if (self->wantVisible) {
         ShowWindow(self->hwnd, SW_SHOW);
@@ -5181,6 +5202,7 @@ static DWORD WINAPI twUiThread(LPVOID param) {
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    self->hwnd = nullptr;                 // never message a destroyed window
     if (self->font) { DeleteObject(self->font); self->font = nullptr; }
     SetEvent(self->hClosed);
     SetEvent(self->hInput);
@@ -5201,6 +5223,15 @@ static bool twWaitPumped(TwWin* s, HANDLE ev) {
 }
 
 // ---- the API the script object calls ----------------------------------------
+static bool twStart(TwWin* s) {
+    if (s->thread) { WaitForSingleObject(s->thread, 5000); CloseHandle(s->thread); s->thread = nullptr; }
+    ResetEvent(s->hReady);
+    ResetEvent(s->hClosed);
+    s->thread = CreateThread(nullptr, 0, twUiThread, s, 0, nullptr);
+    if (!s->thread) return false;
+    WaitForSingleObject(s->hReady, 10000);
+    return s->hwnd != nullptr;
+}
 static void* twOpen(const TwOpts& o) {
     TwWin* s = new TwWin();
     s->title = utf8ToWide(o.title); s->fontName = utf8ToWide(o.fontName);
@@ -5211,35 +5242,43 @@ static void* twOpen(const TwOpts& o) {
     s->hReady  = CreateEventW(nullptr, TRUE,  FALSE, nullptr);
     s->hInput  = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     s->hClosed = CreateEventW(nullptr, TRUE,  FALSE, nullptr);
-    s->thread  = CreateThread(nullptr, 0, twUiThread, s, 0, nullptr);
-    if (!s->thread) { DeleteCriticalSection(&s->cs); delete s; return nullptr; }
-    WaitForSingleObject(s->hReady, 10000);
-    if (!s->hwnd) return nullptr;
+    if (!twStart(s)) { DeleteCriticalSection(&s->cs); delete s; return nullptr; }
     return s;
 }
 static void twWrite(void* h, const std::string& t) {
-    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    TwWin* s = (TwWin*)h; if (!s) return;
     EnterCriticalSection(&s->cs);
-    twAppendNorm(s->pend, utf8ToWide(t));
+    // With no window the text still accumulates, so the transcript stays whole
+    // and Show can bring it back.
+    twAppendNorm(s->hwnd ? s->pend : s->kept, utf8ToWide(t));
     LeaveCriticalSection(&s->cs);
-    SendMessageW(s->hwnd, TWM_FLUSH, 0, 0);
+    if (s->hwnd) SendMessageW(s->hwnd, TWM_FLUSH, 0, 0);
 }
 static std::string twGetText(void* h) {
-    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return std::string();
+    TwWin* s = (TwWin*)h; if (!s) return std::string();
+    if (!s->hwnd) {                       // closed: hand back what was kept
+        EnterCriticalSection(&s->cs);
+        std::wstring t = s->kept;
+        LeaveCriticalSection(&s->cs);
+        return wideToUtf8(t.c_str(), (int)t.size());
+    }
     SendMessageW(s->hwnd, TWM_FLUSH, 0, 0);
     std::wstring out; SendMessageW(s->hwnd, TWM_GETOUT, 0, (LPARAM)&out);
     return wideToUtf8(out.c_str(), (int)out.size());
 }
 static void twSetText(void* h, const std::string& t) {
-    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
+    TwWin* s = (TwWin*)h; if (!s) return;
     std::wstring w; twAppendNorm(w, utf8ToWide(t));
-    EnterCriticalSection(&s->cs); s->pend.clear(); LeaveCriticalSection(&s->cs);
-    SendMessageW(s->hwnd, TWM_SETOUT, (WPARAM)w.c_str(), 0);
+    EnterCriticalSection(&s->cs);
+    s->pend.clear();
+    if (!s->hwnd) s->kept = w;
+    LeaveCriticalSection(&s->cs);
+    if (s->hwnd) SendMessageW(s->hwnd, TWM_SETOUT, (WPARAM)w.c_str(), 0);
 }
 static void twClear(void* h) {
-    TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return;
-    EnterCriticalSection(&s->cs); s->pend.clear(); LeaveCriticalSection(&s->cs);
-    SendMessageW(s->hwnd, TWM_CLEAR, 0, 0);
+    TwWin* s = (TwWin*)h; if (!s) return;
+    EnterCriticalSection(&s->cs); s->pend.clear(); s->kept.clear(); LeaveCriticalSection(&s->cs);
+    if (s->hwnd) SendMessageW(s->hwnd, TWM_CLEAR, 0, 0);
 }
 static std::string twGetInput(void* h) {
     TwWin* s = (TwWin*)h; if (!s || !s->hwnd) return std::string();
@@ -5293,7 +5332,9 @@ static bool twReadAll(void* h, std::string& out) {
     }
 }
 static void twShow(void* h, int cmd) {
-    TwWin* s = (TwWin*)h; if (s && s->hwnd) SendMessageW(s->hwnd, TWM_SHOW, (WPARAM)cmd, 0);
+    TwWin* s = (TwWin*)h; if (!s) return;
+    if (!s->hwnd && cmd != 0) { s->wantVisible = true; twStart(s); return; }  // reopen
+    if (s->hwnd) SendMessageW(s->hwnd, TWM_SHOW, (WPARAM)cmd, 0);
 }
 static void twActivate(void* h) {
     TwWin* s = (TwWin*)h; if (s && s->hwnd) SendMessageW(s->hwnd, TWM_ACTIVATE, 0, 0);

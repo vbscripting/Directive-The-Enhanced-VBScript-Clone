@@ -673,7 +673,11 @@ The user submits with **Submit** or **Ctrl+Enter**; plain Enter inserts a newlin
 `ReadLine`, `ReadAll` and `Prompt` raise a catchable error rather than hanging if
 the user closes the window; anything already submitted is returned first, and
 `IsClosed` lets you poll instead. Blocking calls pump messages, so nothing is
-starved. Closing the window does not destroy the object — `Show` brings it back.
+starved.
+
+Closing the window does not destroy the object. The transcript is kept, so `Text`
+still returns it afterwards and writing continues to accumulate; `Show` reopens the
+window with everything restored.
 
 ```vbs
 Dim tw : Set tw = New TextWindow
